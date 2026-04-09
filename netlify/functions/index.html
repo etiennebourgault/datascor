@@ -473,6 +473,71 @@ async function apiFetchESPN(endpoint){
   return r.json();
 }
 
+// Mapping compétitions → clés The Odds API
+const ODDS_SPORTS={
+  'Ligue 1':'soccer_france_ligue_one',
+  'Premier League':'soccer_epl',
+  'La Liga':'soccer_spain_la_liga',
+  'Serie A':'soccer_italy_serie_a',
+  'Bundesliga':'soccer_germany_bundesliga',
+  'Champions League':'soccer_uefa_champs_league',
+  'Europa League':'soccer_uefa_europa_league',
+  'NBA':'basketball_nba'
+};
+
+async function apiFetchOdds(endpoint){
+  const r=await fetch('/.netlify/functions/api?source=odds&path='+encodeURIComponent(endpoint));
+  if(!r.ok)throw new Error('Odds API '+r.status);
+  return r.json();
+}
+
+// Charger les cotes pour toutes les compétitions du jour
+async function loadAllOdds(){
+  const oddsMap={};
+  const sports=[...new Set(Object.values(ODDS_SPORTS))];
+  await Promise.all(sports.map(async sport=>{
+    try{
+      const data=await apiFetchOdds('/v4/sports/'+sport+'/odds?regions=eu&markets=h2h&oddsFormat=decimal&bookmakers=winamax,betclic,unibet,pmu,bet365');
+      if(data&&Array.isArray(data)){
+        data.forEach(game=>{
+          // Clé = noms d'équipes normalisés
+          const key=(game.home_team+'|'+game.away_team).toLowerCase();
+          const bm=game.bookmakers&&game.bookmakers[0];
+          if(bm){
+            const h2h=bm.markets&&bm.markets.find(m=>m.key==='h2h');
+            if(h2h&&h2h.outcomes){
+              const home=h2h.outcomes.find(o=>o.name===game.home_team);
+              const away=h2h.outcomes.find(o=>o.name===game.away_team);
+              const draw=h2h.outcomes.find(o=>o.name==='Draw');
+              oddsMap[key]={
+                o1:home?home.price:null,
+                oN:draw?draw.price:null,
+                o2:away?away.price:null,
+                bookmaker:bm.title,
+                commenceTime:game.commence_time
+              };
+            }
+          }
+        });
+      }
+    }catch(e){}
+  }));
+  return oddsMap;
+}
+
+// Trouver les cotes pour un match donné
+function findOdds(oddsMap, home, away){
+  const normalize=s=>s.toLowerCase().replace(/fc |cf |afc |sc |as |rc |og |ss |ac |bc |us |ksc |rb |vfb |bv /gi,'').trim();
+  const h=normalize(home), a=normalize(away);
+  for(const [key,val] of Object.entries(oddsMap)){
+    const [kh,ka]=key.split('|').map(normalize);
+    if((kh.includes(h)||h.includes(kh))&&(ka.includes(a)||a.includes(ka))){
+      return val;
+    }
+  }
+  return null;
+}
+
 function getESPNDate(offset=0){
   const d=new Date(); d.setDate(d.getDate()+offset);
   return d.getFullYear()+
@@ -483,17 +548,20 @@ function getESPNDate(offset=0){
 async function loadMatches(){
   document.getElementById('fsmain').innerHTML='<div class="gload"><div class="bspin"></div><div class="lmsg">Chargement DataScore...</div></div>';
   document.getElementById('api-status').className='apistatus api-load';
-  document.getElementById('api-status').textContent='⏳ Chargement...';
+  document.getElementById('api-status').textContent='⏳ Chargement des matchs & cotes...';
   allMatches=[];
   const date=getDate(dayOffset);
   const espnDate=getESPNDate(dayOffset);
 
   try{
-    // ── FOOTBALL via football-data.org ──
+    // ── FOOTBALL + COTES en parallèle ──
     const entries=Object.entries(COMP_CODES);
-    const footballResults=await Promise.all(entries.map(([name,code])=>
-      apiFetch('/v4/competitions/'+code+'/matches?dateFrom='+date+'&dateTo='+date).catch(()=>null)
-    ));
+    const [footballResults, oddsMap]=await Promise.all([
+      Promise.all(entries.map(([name,code])=>
+        apiFetch('/v4/competitions/'+code+'/matches?dateFrom='+date+'&dateTo='+date).catch(()=>null)
+      )),
+      loadAllOdds().catch(()=>({}))
+    ]);
 
     footballResults.forEach((data,i)=>{
       if(!data||!data.matches||data.matches.length===0)return;
@@ -509,13 +577,15 @@ async function loadMatches(){
         if(status==='ft'&&m.score&&m.score.fullTime){
           scoreStr=m.score.fullTime.home+'-'+m.score.fullTime.away;
         }
+        const hName=m.homeTeam.shortName||m.homeTeam.name;
+        const aName=m.awayTeam.shortName||m.awayTeam.name;
+        const odds=findOdds(oddsMap,m.homeTeam.name,m.awayTeam.name)||{o1:null,oN:null,o2:null,bookmaker:null};
         allMatches.push({
           id:'f'+m.id,leagueId:lid,leagueName,
           leagueFlag:info.flag||'🏆',leagueCountry:info.country||'Europe',sport:'football',
-          home:m.homeTeam.shortName||m.homeTeam.name,
-          away:m.awayTeam.shortName||m.awayTeam.name,
+          home:hName,away:aName,
           time:timeStr,status,liveMin,score:scoreStr,
-          o1:null,oN:null,o2:null
+          o1:odds.o1,oN:odds.oN,o2:odds.o2,bookmaker:odds.bookmaker
         });
       });
     });
@@ -534,13 +604,15 @@ async function loadMatches(){
           status='live';
           liveMin='Q'+g.period+' '+g.time;
         }
+        const hNba=g.home_team.full_name;
+        const aNba=g.visitor_team.full_name;
+        const oddsNba=findOdds(oddsMap,hNba,aNba)||{o1:null,oN:null,o2:null,bookmaker:null};
         allMatches.push({
           id:'n'+g.id,leagueId:12,leagueName:'NBA',
           leagueFlag:'🇺🇸',leagueCountry:'États-Unis',sport:'basket',
-          home:g.home_team.full_name,
-          away:g.visitor_team.full_name,
+          home:hNba,away:aNba,
           time:timeStr,status,liveMin,score:scoreStr,
-          o1:null,oN:null,o2:null
+          o1:oddsNba.o1,oN:null,o2:oddsNba.o2,bookmaker:oddsNba.bookmaker
         });
       });
     }
@@ -678,7 +750,7 @@ async function fsSel(lid,mid){
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
       <div>
         <div style="font-size:13px;font-weight:700">${m.home}${scoreDisplay}<span style="color:var(--tx3)"> vs </span>${m.away}</div>
-        <div style="font-size:10px;color:var(--tx2);margin-top:2px">${m.leagueFlag} ${m.leagueName} · ${m.time}${statusDisplay}</div>
+        <div style="font-size:10px;color:var(--tx2);margin-top:2px">${m.leagueFlag} ${m.leagueName} · ${m.time}${statusDisplay}${m.bookmaker?' · <span style="color:var(--grn)">'+m.bookmaker+'</span>':''}</div>
       </div>
       <button onclick="closeFsA()" style="background:var(--bg4);border:1px solid var(--line2);border-radius:5px;padding:3px 8px;font-size:11px;color:var(--tx2);cursor:pointer">✕</button>
     </div>
