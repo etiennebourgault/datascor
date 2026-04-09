@@ -2,13 +2,16 @@ const https = require('https');
 
 exports.handler = async function(event) {
   const API_KEY = '431a39ff83b864a5c5579e744cd289d2';
-  const path = event.queryStringParameters?.path || '';
+  let path = event.queryStringParameters?.path || '';
   
   if (!path) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'ParamÃ¨tre path manquant' }) };
+    return { statusCode: 400, body: JSON.stringify({ error: 'path manquant' }) };
   }
 
-  const url = `https://v3.football.api-sports.io${path}`;
+  // Ajouter la saison 2024 si pas déjà présente
+  if (!path.includes('season=') && path.includes('fixtures')) {
+    path += (path.includes('?') ? '&' : '?') + 'season=2024';
+  }
 
   return new Promise((resolve) => {
     const options = {
@@ -37,10 +40,7 @@ exports.handler = async function(event) {
     });
 
     req.on('error', (err) => {
-      resolve({
-        statusCode: 500,
-        body: JSON.stringify({ error: err.message })
-      });
+      resolve({ statusCode: 500, body: JSON.stringify({ error: err.message }) });
     });
 
     req.end();
