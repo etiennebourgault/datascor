@@ -447,74 +447,65 @@ function showPg(id){
   document.getElementById('tn-'+id).classList.add('on');
 }
 
+// Codes compétitions football-data.org
+const COMP_CODES={
+  'Ligue 1':'FL1','Premier League':'PL','La Liga':'PD',
+  'Serie A':'SA','Bundesliga':'BL1','Champions League':'CL','Europa League':'EL'
+};
+
 async function apiFetch(endpoint){
-  // Passe par la fonction proxy Netlify pour éviter les erreurs CORS
-  const r=await fetch(`/.netlify/functions/api?path=${encodeURIComponent(endpoint)}`);
+  const r=await fetch('/.netlify/functions/api?path='+encodeURIComponent(endpoint));
   if(!r.ok)throw new Error('API '+r.status);
   return r.json();
 }
 
 async function loadMatches(){
-  document.getElementById('fsmain').innerHTML=`<div class="gload"><div class="bspin"></div><div class="lmsg">Chargement DataScore...</div></div>`;
+  document.getElementById('fsmain').innerHTML='<div class="gload"><div class="bspin"></div><div class="lmsg">Chargement DataScore...</div></div>';
   document.getElementById('api-status').className='apistatus api-load';
   document.getElementById('api-status').textContent='⏳ Chargement...';
   allMatches=[];
   const date=getDate(dayOffset);
+
   try{
-    const footballResults=await Promise.all(LEAGUE_IDS.football.map(lid=>apiFetch(`/fixtures?league=${lid}&date=${date}&timezone=Europe/Paris`).catch(()=>null)));
-    // NBA: endpoint différent
-    const nbaResult=await apiFetch(`/games?league=12&date=${date}`).catch(()=>null);
-    const results=[...footballResults];
+    const entries=Object.entries(COMP_CODES);
+    const results=await Promise.all(entries.map(([name,code])=>
+      apiFetch('/v4/competitions/'+code+'/matches?dateFrom='+date+'&dateTo='+date).catch(()=>null)
+    ));
+
     let total=0;
-    // Football
     results.forEach((data,i)=>{
-      if(!data||!data.response)return;
-      const lid=LEAGUE_IDS.football[i],info=LEAGUE_INFO[lid];
-      if(!info)return;
-      data.response.forEach(f=>{
-        const fix=f.fixture,teams=f.teams,goals=f.goals;
-        const kickoff=new Date(fix.date);
-        const timeStr=kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      if(!data||!data.matches||data.matches.length===0)return;
+      const leagueName=entries[i][0];
+      const info=Object.values(LEAGUE_INFO).find(x=>x.name===leagueName)||{flag:'🏆',country:'Europe',sport:'football'};
+      const lid=Object.entries(LEAGUE_INFO).find(([k,v])=>v.name===leagueName)?.[0]||i;
+      data.matches.forEach(m=>{
+        const kickoff=new Date(m.utcDate);
+        const timeStr=kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Paris'});
         let status='sched',liveMin=null,scoreStr=null;
-        if(['1H','2H','ET','P'].includes(fix.status.short)){status='live';liveMin=fix.status.elapsed;}
-        else if(['FT','AET','PEN'].includes(fix.status.short)){status='ft';}
-        if(goals.home!==null&&goals.away!==null)scoreStr=`${goals.home}-${goals.away}`;
-        const oh=f.odds?.[0]?.values?.find(v=>v.value==='Home')?.odd;
-        const od=f.odds?.[0]?.values?.find(v=>v.value==='Draw')?.odd;
-        const oa=f.odds?.[0]?.values?.find(v=>v.value==='Away')?.odd;
-        allMatches.push({id:'f'+fix.id,leagueId:lid,leagueName:info.name,leagueFlag:info.flag,leagueCountry:info.country,sport:info.sport,home:teams.home.name,away:teams.away.name,time:timeStr,status,liveMin,score:scoreStr,o1:oh?parseFloat(oh):null,oN:od?parseFloat(od):null,o2:oa?parseFloat(oa):null});
-        total++;
-      });
-    });
-    // NBA
-    if(nbaResult&&nbaResult.response){
-      const nbaInfo=LEAGUE_INFO[12];
-      nbaResult.response.forEach(g=>{
-        const kickoff=new Date(g.date.start);
-        const timeStr=kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-        let status='sched',liveMin=null,scoreStr=null;
-        if(g.status.short===2){status='live';liveMin=`Q${g.periods?.current||'?'}`;}
-        else if(g.status.short===3){status='ft';}
-        if(g.scores?.home?.points!==null&&g.scores?.visitors?.points!==null&&g.status.short>=2){
-          scoreStr=`${g.scores.home.points}-${g.scores.visitors.points}`;
+        if(m.status==='IN_PLAY'||m.status==='PAUSED'){status='live';liveMin=m.minute||'?';}
+        else if(m.status==='FINISHED'){status='ft';}
+        if(status==='ft'&&m.score&&m.score.fullTime){
+          scoreStr=m.score.fullTime.home+'-'+m.score.fullTime.away;
         }
         allMatches.push({
-          id:'b'+g.id,leagueId:12,leagueName:nbaInfo.name,leagueFlag:nbaInfo.flag,
-          leagueCountry:nbaInfo.country,sport:'basket',
-          home:g.teams.home.name,away:g.teams.visitors.name,
+          id:'f'+m.id,leagueId:lid,leagueName:leagueName,
+          leagueFlag:info.flag||'🏆',leagueCountry:info.country||'Europe',sport:'football',
+          home:m.homeTeam.shortName||m.homeTeam.name,
+          away:m.awayTeam.shortName||m.awayTeam.name,
           time:timeStr,status,liveMin,score:scoreStr,
           o1:null,oN:null,o2:null
         });
         total++;
       });
-    }
+    });
+
     document.getElementById('api-status').className='apistatus api-ok';
-    document.getElementById('api-status').textContent=`✓ DataScore Live — ${total} matchs`;
+    document.getElementById('api-status').textContent='✓ DataScore Live — '+total+' matchs';
     renderMatches();
   }catch(e){
     document.getElementById('api-status').className='apistatus api-err';
     document.getElementById('api-status').textContent='✗ Erreur API';
-    document.getElementById('fsmain').innerHTML=`<div class="nodata"><div style="font-size:32px;opacity:.3">🔌</div><p><strong style="color:var(--tx2)">Limite API atteinte</strong><br>100 requêtes/jour sur le plan gratuit.<br>Réessaie demain.</p></div>`;
+    document.getElementById('fsmain').innerHTML='<div class="nodata"><div style="font-size:32px;opacity:.3">🔌</div><p><strong style="color:var(--tx2)">Erreur de chargement</strong><br>Actualise la page.</p></div>';
   }
 }
 
@@ -836,88 +827,54 @@ function getMatchPairs(league) {
 
 async function updateMatchDropdown(league) {
   const sel = document.getElementById('match-select');
-  sel.innerHTML = '<option value="">⏳ Chargement...</option>';
-  if (!league) { sel.innerHTML = '<option value="">— Choisir un match —</option>'; return; }
+  sel.innerHTML = '<option value="">⏳ Chargement des matchs...</option>';
+  if (!league) { sel.innerHTML = '<option value="">— Choisir d\'abord une compétition —</option>'; return; }
 
-  // Trouver l'ID de la ligue
-  const leagueEntry = Object.entries(LEAGUE_INFO).find(([id, info]) => info.name === league);
-  if (!leagueEntry) { sel.innerHTML = '<option value="">— Match non disponible —</option>'; return; }
-  const leagueId = leagueEntry[0];
-  const isSport = LEAGUE_INFO[leagueId].sport;
+  const code = COMP_CODES[league];
+  if (!code) { sel.innerHTML = '<option value="">— Compétition non disponible —</option>'; return; }
 
-  // D'abord chercher dans les matchs déjà chargés (page Live)
-  const cached = allMatches.filter(m => String(m.leagueId) === String(leagueId));
-  if (cached.length > 0) {
-    fillDropdown(sel, cached);
-    return;
-  }
-
-  // Sinon interroger l'API pour les 7 prochains jours
   try {
-    sel.innerHTML = '<option value="">⏳ Récupération des matchs...</option>';
     const today = new Date();
     let found = [];
 
-    // Chercher sur les 7 prochains jours
     for (let i = 0; i <= 7; i++) {
       const d = new Date(today); d.setDate(d.getDate() + i);
       const dateStr = d.toISOString().split('T')[0];
-      let data;
-      if (isSport === 'basket') {
-        data = await apiFetch(`/games?league=${leagueId}&date=${dateStr}`).catch(()=>null);
-        if (data && data.response) {
-          data.response.forEach(g => {
-            const kickoff = new Date(g.date.start);
-            const timeStr = kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-            const dayLabel = i === 0 ? 'Auj.' : kickoff.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'2-digit'});
-            found.push({
-              home: g.teams.home.name, away: g.teams.visitors.name,
-              o1: null, oN: null, o2: null,
-              time: timeStr, day: dayLabel, offset: i
-            });
+      const data = await apiFetch('/v4/competitions/'+code+'/matches?dateFrom='+dateStr+'&dateTo='+dateStr).catch(()=>null);
+      if (data && data.matches && data.matches.length > 0) {
+        data.matches.forEach(m => {
+          const kickoff = new Date(m.utcDate);
+          const timeStr = kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Paris'});
+          const days_fr = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+          const dayLabel = i===0 ? 'Auj.' : days_fr[kickoff.getDay()]+' '+kickoff.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'});
+          found.push({
+            home: m.homeTeam.shortName||m.homeTeam.name,
+            away: m.awayTeam.shortName||m.awayTeam.name,
+            o1:null, oN:null, o2:null,
+            time:timeStr, day:dayLabel, offset:i
           });
-        }
-      } else {
-        data = await apiFetch(`/fixtures?league=${leagueId}&date=${dateStr}&timezone=Europe/Paris`).catch(()=>null);
-        if (data && data.response) {
-          data.response.forEach(f => {
-            const kickoff = new Date(f.fixture.date);
-            const timeStr = kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-            const dayLabel = i === 0 ? 'Auj.' : kickoff.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'2-digit'});
-            const oh = f.odds?.[0]?.values?.find(v=>v.value==='Home')?.odd;
-            const od = f.odds?.[0]?.values?.find(v=>v.value==='Draw')?.odd;
-            const oa = f.odds?.[0]?.values?.find(v=>v.value==='Away')?.odd;
-            found.push({
-              home: f.teams.home.name, away: f.teams.away.name,
-              o1: oh ? parseFloat(oh) : null,
-              oN: od ? parseFloat(od) : null,
-              o2: oa ? parseFloat(oa) : null,
-              time: timeStr, day: dayLabel, offset: i
-            });
-          });
-        }
+        });
+        if(found.length > 0 && i >= 1) break;
       }
-      if (found.length > 0 && i >= 1) break; // Si on a des matchs demain ou après, on s'arrête
     }
 
     if (found.length > 0) {
       sel.innerHTML = '<option value="">— Choisir un match —</option>';
-      // Grouper par jour
       let lastDay = '';
       found.forEach(m => {
         if (m.day !== lastDay) {
           const grp = document.createElement('optgroup');
-          grp.label = m.offset === 0 ? "Aujourd'hui" : m.day;
+          grp.label = m.offset===0 ? "Aujourd\'hui" : m.day;
           sel.appendChild(grp);
           lastDay = m.day;
         }
         const opt = document.createElement('option');
-        opt.value = JSON.stringify({home: m.home, away: m.away, o1: m.o1, oN: m.oN, o2: m.o2});
-        opt.textContent = `${m.home} vs ${m.away}  (${m.time})`;
+        opt.value = JSON.stringify({home:m.home, away:m.away, o1:null, oN:null, o2:null});
+        opt.textContent = m.home+' vs '+m.away+'  ('+m.time+')';
         sel.lastElementChild.appendChild(opt);
       });
     } else {
-      sel.innerHTML = '<option value="">— Aucun match trouvé (limite API?) —</option>';
+      sel.innerHTML = '<option value="">— Aucun match trouvé (vérif. limite API) —</option>';
     }
   } catch(e) {
     sel.innerHTML = '<option value="">— Erreur de chargement —</option>';
@@ -963,9 +920,7 @@ function onMatchSelect(val) {
 // Mettre à jour la liste quand la compétition change
 const origMcomp = document.getElementById('mcomp');
 if (origMcomp) {
-  origMcomp.addEventListener('change', function() {
-    updateMatchDropdown(this.value);
-  });
+  origMcomp.addEventListener('change', function() { updateMatchDropdown(this.value); });
 }
 
 document.getElementById('mdate').valueAsDate=new Date();
