@@ -511,28 +511,54 @@ function bb(m) {
 // ALGORITHME DOUBLE CHANCE
 // ══════════════════════════════════════════════
 function computeDC(homeStats, awayStats, o1, oN, o2) {
-  var probs = fp(o1||2, oN||3.5, o2||3);
+  // Probabilités implicites (vraies proba après correction de marge)
+  var o1s = o1||2.0, oNs = oN||3.5, o2s = o2||3.0;
+  var probs = fp(o1s, oNs, o2s);
   var f1=probs.f1, fN=probs.fN, f2=probs.f2;
 
-  var hWinRate = homeStats ? homeStats.winRate : f1;
-  var hDrawRate = homeStats ? homeStats.drawRate : fN;
-  var aWinRate = awayStats ? awayStats.winRate : f2;
-  var aDrawRate = awayStats ? awayStats.drawRate : fN;
+  // Stats réelles si disponibles, sinon estimation depuis les cotes
+  var hWin  = homeStats ? homeStats.winRate  : f1;
+  var hDraw = homeStats ? homeStats.drawRate : fN;
+  var aWin  = awayStats ? awayStats.winRate  : f2;
+  var aDraw = awayStats ? awayStats.drawRate : fN;
 
-  var gH = homeStats ? parseFloat(homeStats.goalsFor) : 1.4;
-  var gA = awayStats ? parseFloat(awayStats.goalsFor) : 1.1;
+  // Moyennes de buts
+  var gH  = homeStats ? parseFloat(homeStats.goalsFor)     : 1.4;
+  var gA  = awayStats ? parseFloat(awayStats.goalsFor)     : 1.1;
   var gcH = homeStats ? parseFloat(homeStats.goalsAgainst) : 1.1;
   var gcA = awayStats ? parseFloat(awayStats.goalsAgainst) : 1.3;
 
-  var dc1X = Math.round(Math.min((f1+fN)*0.4 + hWinRate*0.25 + hDrawRate*0.15 + (100-aWinRate)*0.20, 95));
-  var dcX2 = Math.round(Math.min((f2+fN)*0.4 + aWinRate*0.25 + aDrawRate*0.15 + (100-hWinRate)*0.20, 95));
-  var avgGoals = (gH+gA+gcH+gcA)/2;
-  var over25 = Math.round(Math.min(avgGoals/3.5*100, 92));
-  var under25 = 100-over25;
-  var btts = Math.round(Math.min((gH+gA)/3*100, 88));
+  // Double chance 1X = domicile gagne OU nul
+  // Score élevé si : forte proba 1X dans les cotes + bon taux victoire/nul dom. + faiblesse extérieur
+  var score1X = (f1+fN)*0.40       // 40% : probabilité marché (cotes)
+              + hWin  * 0.20       // 20% : taux victoire équipe domicile
+              + hDraw * 0.15       // 15% : taux nul équipe domicile
+              + (100-aWin) * 0.15  // 15% : faiblesse de l'extérieur
+              + (gcA > gcH ? 10 : 0); // 10% bonus si extérieur encaisse plus
 
-  return {dc1X:dc1X, dcX2:dcX2, over25:over25, under25:under25, btts:btts,
-          avgGoals:avgGoals.toFixed(2), f1:Math.round(f1), fN:Math.round(fN), f2:Math.round(f2)};
+  // Double chance X2 = nul OU extérieur gagne
+  // Score élevé si : forte proba X2 dans les cotes + bon taux extérieur + faiblesse domicile
+  var scoreX2 = (f2+fN)*0.40
+              + aWin  * 0.20
+              + aDraw * 0.15
+              + (100-hWin) * 0.15
+              + (gcH > gcA ? 10 : 0); // 10% bonus si domicile encaisse plus
+
+  var dc1X = Math.round(Math.min(score1X, 95));
+  var dcX2 = Math.round(Math.min(scoreX2, 95));
+
+  // Over/Under basé sur les vraies moyennes
+  var avgGoals = (gH + gA + gcH + gcA) / 2;
+  var over25   = Math.round(Math.min(avgGoals / 3.5 * 100, 92));
+  var under25  = 100 - over25;
+  var btts     = Math.round(Math.min((gH + gA) / 3.0 * 100, 88));
+
+  return {
+    dc1X: dc1X, dcX2: dcX2,
+    over25: over25, under25: under25, btts: btts,
+    avgGoals: avgGoals.toFixed(2),
+    f1: Math.round(f1), fN: Math.round(fN), f2: Math.round(f2)
+  };
 }
 
 // ══════════════════════════════════════════════
@@ -622,27 +648,40 @@ async function loadMatches() {
       });
     });
 
-    // NBA via BDL
+    // NBA via ESPN (gratuit, sans clé)
     try {
-      var nbaData = await apiFetchBDL('/v1/nba/games?dates[]=' + date + '&per_page=20');
-      if (nbaData&&nbaData.data) {
-        nbaData.data.forEach(function(g) {
-          var kickoff = new Date(g.date);
+      var nbaData = await apiFetchESPN('/apis/site/v2/sports/basketball/nba/scoreboard?dates=' + getESPNDate(dayOffset));
+      if (nbaData && nbaData.events) {
+        nbaData.events.forEach(function(g) {
+          var comp = g.competitions && g.competitions[0];
+          if (!comp) return;
+          var home = comp.competitors.find(function(c){return c.homeAway==='home';});
+          var away = comp.competitors.find(function(c){return c.homeAway==='away';});
+          if (!home||!away) return;
+          var kickoff = new Date(comp.date);
           var timeStr = kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Paris'});
           var status='sched', liveMin=null, scoreStr=null;
-          if (g.status==='Final') {status='ft';scoreStr=g.home_team_score+'-'+g.visitor_team_score;}
-          else if (g.status&&g.status!=='scheduled'&&g.period>0) {status='live';liveMin='Q'+g.period;}
-          var oddsNba = findOdds(g.home_team.full_name, g.visitor_team.full_name)||{o1:null,oN:null,o2:null,bookmaker:null};
+          var st = comp.status&&comp.status.type&&comp.status.type.name||'';
+          if (st==='STATUS_IN_PROGRESS') {
+            status='live';
+            liveMin='Q'+(comp.status.period||'?')+' '+(comp.status.displayClock||'');
+          } else if (st==='STATUS_FINAL') {
+            status='ft';
+            scoreStr=home.score+'-'+away.score;
+          }
+          var hName=home.team.shortDisplayName||home.team.name;
+          var aName=away.team.shortDisplayName||away.team.name;
+          var oddsNba=findOdds(hName,aName)||{o1:null,oN:null,o2:null,bookmaker:null};
           allMatches.push({
             id:'n'+g.id, leagueId:12, leagueName:'NBA',
             leagueFlag:'🇺🇸', leagueCountry:'États-Unis', sport:'basket',
-            home:g.home_team.full_name, away:g.visitor_team.full_name,
+            home:hName, away:aName,
             time:timeStr, status:status, liveMin:liveMin, score:scoreStr,
             o1:oddsNba.o1, oN:null, o2:oddsNba.o2, bookmaker:oddsNba.bookmaker
           });
         });
       }
-    } catch(e) {}
+    } catch(e) { console.error('NBA ESPN error:', e); }
 
     st.className='apist st-ok'; st.textContent='✓ DataScore — '+allMatches.length+' matchs';
     renderMatches();
