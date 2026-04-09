@@ -957,422 +957,138 @@ async function fsSel(lid,mid){
   document.getElementById('mr-'+mid)?.classList.add('sel');selId=mid;
   document.getElementById('fsee').style.display='none';
   const ac=document.getElementById('fsac');ac.style.display='block';
-  ac.innerHTML='<div class="lbox"><div class="spin"></div><div class="lmsg" id="fslm">Chargement des stats réelles...</div></div>';
+  ac.innerHTML='<div class="lbox"><div class="spin"></div><div class="lmsg" id="fslm">Chargement des stats...</div></div>';
   const lms=['Analyse de la forme...','Calcul double chance...','Génération recommandation...'];
   let li=0;const lI=setInterval(()=>{const e=document.getElementById('fslm');if(e&&li<lms.length)e.textContent=lms[li++];},900);
 
   const{f1,fN,f2}=m.o1?fp(m.o1,m.oN,m.o2):{f1:50,fN:25,f2:25};
   const best=m.o1?bb(m):{lbl:'Cotes indisponibles',s:'?',odd:0,e:0,isV:false};
 
-  // Charger les vraies stats via API
-  const leagueCode = COMP_CODES[m.leagueName] || null;
-  let homeStats=null, awayStats=null, h2hReal=[], dcScores=null;
-
-  // Récupérer les IDs d'équipes depuis les matchs chargés
-  const matchData = allMatchesRaw ? allMatchesRaw[m.id] : null;
-  if(matchData && matchData.homeTeam && matchData.homeTeam.id && leagueCode){
+  // Vraies stats
+  const leagueCode=COMP_CODES[m.leagueName]||null;
+  let homeStats=null,awayStats=null,h2hReal=[],dcScores=null;
+  const matchData=allMatchesRaw[m.id]||null;
+  if(matchData&&matchData.homeTeam&&matchData.homeTeam.id&&leagueCode){
     try{
-      const stats = await fetchTeamStats(leagueCode, matchData.homeTeam.id, matchData.awayTeam.id);
-      if(stats){
-        homeStats = stats.home;
-        awayStats = stats.away;
-        h2hReal = stats.h2h || [];
-        dcScores = computeDoubleChanceScore(homeStats, awayStats, m.o1, m.oN, m.o2);
-      }
+      const stats=await fetchTeamStats(leagueCode,matchData.homeTeam.id,matchData.awayTeam.id);
+      if(stats){homeStats=stats.home;awayStats=stats.away;h2hReal=stats.h2h||[];dcScores=computeDoubleChanceScore(homeStats,awayStats,m.o1,m.oN,m.o2);}
     }catch(e){}
   }
 
-  // Fallback si pas de stats réelles
-  const fH = homeStats ? homeStats.form : gf(0.55);
-  const fA = awayStats ? awayStats.form : gf(0.45);
-  const gH = homeStats ? homeStats.goalsFor : +(1.2+Math.random()*.9).toFixed(1);
-  const gA = awayStats ? awayStats.goalsFor : +(0.8+Math.random()*.7).toFixed(1);
-  const h2h = h2hReal.length > 0 ? h2hReal : gh2().map(r=>({result:r}));
-  const wH = h2hReal.length > 0
-    ? h2hReal.filter(r=>r.result==='W').length
-    : h2h.filter(r=>r==='W').length;
-  const dr = h2hReal.length > 0
-    ? h2hReal.filter(r=>r.result==='D').length
-    : h2h.filter(r=>r==='D').length;
-  const wA = h2hReal.length > 0
-    ? h2hReal.filter(r=>r.result==='L').length
-    : h2h.filter(r=>r==='L').length;
-
-  // Confiance basée sur les vraies stats ou estimation
-  const conf = dcScores
-    ? Math.max(dcScores.dc1X, dcScores.dcX2)
-    : (best.isV ? Math.round(68+Math.random()*18) : Math.round(48+Math.random()*18));
+  const fH=homeStats?homeStats.form:gf(0.55);
+  const fA=awayStats?awayStats.form:gf(0.45);
+  const gH=homeStats?homeStats.goalsFor:+(1.2+Math.random()*.9).toFixed(1);
+  const gA=awayStats?awayStats.goalsFor:+(0.8+Math.random()*.7).toFixed(1);
+  const h2hList=h2hReal.length>0?h2hReal:gh2().map(r=>({result:r,score:'?-?',home:m.home,away:m.away,date:'—'}));
+  const wH=h2hList.filter(r=>(r.result||r)==='W').length;
+  const dr=h2hList.filter(r=>(r.result||r)==='D').length;
+  const wA=h2hList.filter(r=>(r.result||r)==='L').length;
+  const conf=dcScores?Math.max(dcScores.dc1X,dcScores.dcX2):(best.isV?Math.round(68+Math.random()*18):Math.round(48+Math.random()*18));
+  const cc=conf>=70?'h':conf>=55?'m':'l';
 
   // Recommandation double chance
-  let bestDC = null;
-  if(dcScores && m.o1 && m.oN && m.o2){
-    const cote1X = roundOdd(1/((1/m.o1)+(1/m.oN)));
-    const coteX2 = roundOdd(1/((1/m.o2)+(1/m.oN)));
-    if(dcScores.dc1X >= dcScores.dcX2 && cote1X >= 1.20){
-      bestDC = {label:'Double chance 1X ('+m.home+' ou Nul)', cote:cote1X, score:dcScores.dc1X, type:'1X'};
-    } else if(coteX2 >= 1.20){
-      bestDC = {label:'Double chance X2 (Nul ou '+m.away+')', cote:coteX2, score:dcScores.dcX2, type:'X2'};
-    }
+  let bestDC=null;
+  if(dcScores&&m.o1&&m.oN&&m.o2){
+    const c1X=roundOdd(1/((1/m.o1)+(1/m.oN)));
+    const cX2=roundOdd(1/((1/m.o2)+(1/m.oN)));
+    if(dcScores.dc1X>=dcScores.dcX2&&c1X>=1.20)
+      bestDC={label:'Double chance 1X ('+m.home+' / Nul)',cote:c1X,score:dcScores.dc1X,type:'1X'};
+    else if(cX2>=1.20)
+      bestDC={label:'Double chance X2 (Nul / '+m.away+')',cote:cX2,score:dcScores.dcX2,type:'X2'};
   }
 
-  const ab = m.o1 ? buildAltBetsReal(m, dcScores, f1, fN, f2) : [];
-  const cc = conf>=70?'h':conf>=55?'m':'l';
-  const rc = bestDC&&bestDC.score>=70?'rh':conf>=55?'rm':'rl';
-  let ai='';
-  try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:300,messages:[{role:'user',content:`Expert paris sportifs. 4 phrases concises en français. Match: ${m.home} vs ${m.away} (${m.leagueName}). Cotes: ${m.o1||'N/D'}/${m.oN||'—'}/${m.o2||'N/D'}. Prob: ${f1.toFixed(0)}%/${fN.toFixed(0)}%/${f2.toFixed(0)}%. Forme dom: ${fH.join('-')}, ext: ${fA.join('-')}. ${best.odd?'Reco: '+best.lbl+' @ '+best.odd.toFixed(2):''}. **gras** sur points clés. Commence directement.`}]})});
-    const d=await r.json();ai=d.content?.map(c=>c.text||'').join('\n')||'';
-  }catch(e){
-    const wH2=fH.filter(r=>r==='W').length,wA2=fA.filter(r=>r==='W').length;
-    ai=`**${m.home}** affiche ${wH2}/5 victoires récentes avec l'avantage du terrain. **${m.away}** réalise ${wA2}/5 à l'extérieur — forme ${wA2>=3?'solide':'irrégulière'}. ${best.isV?`✅ Value bet sur **${best.lbl}** @ ${best.odd.toFixed(2)} (edge +${best.e.toFixed(1)}%).`:`Pas de value évident, privilégier les paris alternatifs.`} H2H : ${wH>wA?m.home+' domine':wA>wH?m.away+' domine':'équilibre'} sur 5 confrontations.`;
+  const ab=m.o1?buildAltBetsReal(m,dcScores,f1,fN,f2):[];
+  const scoreDisplay=m.score?'<span style="font-size:12px;color:var(--acc);font-family:monospace;font-weight:700;margin-left:8px">'+m.score+'</span>':'';
+  const statusDisplay=m.status==='live'?' · <span style="font-size:9px;color:var(--live);font-weight:700">⬤ LIVE '+m.liveMin+"'</span>":m.status==='ft'?' · FT':'';
+  const bkDisplay=m.bookmaker?' · <span style="color:var(--grn)">'+m.bookmaker+'</span>':'';
+
+  // Construire le HTML de recommandation
+  let recoHtml='';
+  if(bestDC){
+    recoHtml='<div class="rcard rh">';
+    recoHtml+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">';
+    recoHtml+='<div><div class="rlbl" style="color:var(--grn)">⭐ Recommandation Double Chance</div>';
+    recoHtml+='<div class="rbet">'+bestDC.label+'</div></div>';
+    recoHtml+='<div class="cpill cph">🟢 '+bestDC.score+'%</div></div>';
+    recoHtml+='<div style="display:flex;align-items:baseline;gap:8px">';
+    recoHtml+='<div class="rcote">'+bestDC.cote.toFixed(2)+' <small>cote</small></div>';
+    recoHtml+='<span style="font-size:10px;color:var(--grn)">Confiance '+bestDC.score+'%</span></div></div>';
+  } else if(m.o1){
+    const rc=best.isV?'rh':conf>=55?'rm':'rl';
+    recoHtml='<div class="rcard '+rc+'">';
+    recoHtml+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">';
+    recoHtml+='<div><div class="rlbl">Recommandation DataScore</div>';
+    recoHtml+='<div class="rbet">'+best.lbl+'</div></div>';
+    recoHtml+='<div class="cpill cp'+cc+'">'+(cc==='h'?'🟢':cc==='m'?'🟡':'🔴')+' '+conf+'%</div></div>';
+    recoHtml+='<div style="display:flex;align-items:baseline;gap:8px">';
+    recoHtml+='<div class="rcote">'+best.odd.toFixed(2)+' <small>cote</small></div>';
+    if(best.isV) recoHtml+='<span style="font-size:10px;color:var(--grn)">Edge +'+best.e.toFixed(1)+'%</span>';
+    recoHtml+='</div></div>';
   }
-  clearInterval(lI);
-  const scoreDisplay=m.score?`<span style="font-size:12px;color:var(--acc);font-family:monospace;font-weight:700;margin-left:8px">${m.score}</span>`:'';
-  const statusDisplay=m.status==='live'?`<span style="font-size:9px;color:var(--live);font-weight:700"> · ⬤ LIVE ${m.liveMin}'</span>`:m.status==='ft'?' · FT':'';
-  ac.innerHTML=`<div class="ap">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
-      <div>
-        <div style="font-size:13px;font-weight:700">${m.home}${scoreDisplay}<span style="color:var(--tx3)"> vs </span>${m.away}</div>
-        <div style="font-size:10px;color:var(--tx2);margin-top:2px">${m.leagueFlag} ${m.leagueName} · ${m.time}${statusDisplay}${m.bookmaker?' · <span style="color:var(--grn)">'+m.bookmaker+'</span>':''}</div>
-      </div>
-      <button onclick="closeFsA()" style="background:var(--bg4);border:1px solid var(--line2);border-radius:5px;padding:3px 8px;font-size:11px;color:var(--tx2);cursor:pointer">✕</button>
-    </div>
 
-    ${bestDC ? `
-    <div class="rcard rh">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div>
-          <div class="rlbl" style="color:var(--grn)">⭐ Recommandation Double Chance</div>
-          <div class="rbet">${bestDC.label}</div>
-        </div>
-        <div class="cpill cph">🟢 ${bestDC.score}%</div>
-      </div>
-      <div style="display:flex;align-items:baseline;gap:8px">
-        <div class="rcote">${bestDC.cote.toFixed(2)} <small>cote</small></div>
-        <span style="font-size:10px;color:var(--grn)">Confiance ${bestDC.score}%</span>
-      </div>
-    </div>` : m.o1?`<div class="rcard ${rc}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div><div class="rlbl">Recommandation DataScore</div><div class="rbet">${best.lbl}</div></div>
-        <div class="cpill cp${cc}">${cc==='h'?'🟢':cc==='m'?'🟡':'🔴'} ${conf}%</div>
-      </div>
-      <div style="display:flex;align-items:baseline;gap:8px">
-        <div class="rcote">${best.odd.toFixed(2)} <small>cote</small></div>
-        ${best.isV?`<span style="font-size:10px;color:var(--grn)">Edge +${best.e.toFixed(1)}%</span>`:''}
-      </div>
-    </div>`:''}
-    <div class="aib">
-      <div class="ptl">Probabilités estimées</div>
-      <div class="pbar">
-        <div class="pseg" style="background:var(--acc);width:${f1.toFixed(0)}%">${f1.toFixed(0)}%</div>
-        ${m.oN?`<div class="pseg" style="background:#374151;width:${fN.toFixed(0)}%">${fN.toFixed(0)}%</div>`:''}
-        <div class="pseg" style="background:var(--acc2);width:${f2.toFixed(0)}%">${f2.toFixed(0)}%</div>
-      </div>
-      <div class="plbls"><span>${m.home} ${f1.toFixed(0)}%</span>${m.oN?`<span>Nul ${fN.toFixed(0)}%</span>`:''}<span>${m.away} ${f2.toFixed(0)}%</span></div>
-    </div>`:`<div class="aib" style="text-align:center;padding:16px;color:var(--tx3);font-size:12px">Cotes non disponibles</div>`}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-      <div class="sc2"><div class="sv2" style="color:var(--acc)">${gH}/${gA}</div><div class="sl3">Buts/match D/E</div></div>
-      <div class="sc2"><div class="sv2" style="color:var(--amb)">${wH}-${dr}-${wA}</div><div class="sl3">H2H (V-N-D)</div></div>
-    </div>
-    <div class="aib">
-      <div class="ptl">Forme récente</div>
-      ${[{t:m.home,f:fH},{t:m.away,f:fA}].map(({t,f})=>`<div class="frow2"><div class="ftn">${t}</div><div class="fds">${fdots(f)}</div></div>`).join('')}
-    </div>
-    ${ab.length?`<div class="aib">
-      <div class="ptl">Paris ciblés (cote ≤ 1.90)</div>
-      ${ab.map(b=>`<div class="abi"><div><div class="abl">${b.lbl}</div><div class="abs2">${b.sub}</div></div><div style="text-align:right"><div class="abc">${b.odd.toFixed(2)}</div>${b.val?`<div class="abe">+${b.edg.toFixed(1)}%</div>`:''}</div></div>`).join('')}
-    </div>`:''}
-    <div class="aib">
-      <div class="aih"><div class="aii">🤖</div><div class="ait">Analyse DataScore IA</div></div>
-      <div class="aic">${ai.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>')}</div>
-    </div>
-    <button onclick="openInMA('${lid}','${mid}')" style="width:100%;padding:9px;background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px">Analyse complète avec graphiques ↗</button>
-  </div>`;
-}
+  // Probabilités
+  let probaHtml='<div class="aib"><div class="ptl">Probabilités estimées</div>';
+  probaHtml+='<div class="pbar">';
+  probaHtml+='<div class="pseg" style="background:var(--acc);width:'+f1.toFixed(0)+'%">'+f1.toFixed(0)+'%</div>';
+  if(m.oN) probaHtml+='<div class="pseg" style="background:#374151;width:'+fN.toFixed(0)+'%">'+fN.toFixed(0)+'%</div>';
+  probaHtml+='<div class="pseg" style="background:var(--acc2);width:'+f2.toFixed(0)+'%">'+f2.toFixed(0)+'%</div>';
+  probaHtml+='</div><div class="plbls"><span>'+m.home+' '+f1.toFixed(0)+'%</span>';
+  if(m.oN) probaHtml+='<span>Nul '+fN.toFixed(0)+'%</span>';
+  probaHtml+='<span>'+m.away+' '+f2.toFixed(0)+'%</span></div></div>';
 
-function openInMA(lid,mid){
-  const m=allMatches.find(x=>x.id===mid);if(!m)return;
-  document.getElementById('mh').value=m.home;
-  document.getElementById('maw').value=m.away;
-  const info=LEAGUE_INFO[lid];
-  if(info)document.getElementById('mcomp').value=info.name;
-  if(m.o1)document.getElementById('mo1').value=m.o1;
-  if(m.oN)document.getElementById('mo2').value=m.oN;
-  if(m.o2)document.getElementById('mo3').value=m.o2;
-  showPg('ma');setTimeout(()=>maRun(),200);
-}
-
-function maSp(btn,sp){
-  maSport=sp;document.querySelectorAll('.stfb').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
-  document.getElementById('mfo').style.display=sp==='football'?'':'none';
-  document.getElementById('mbo').style.display=sp==='basket'?'':'none';
-  document.getElementById('ml2').textContent=sp==='basket'?'Handicap':'Nul';
-}
-
-function mpre(h,a,comp){
-  document.getElementById('mh').value=h;document.getElementById('maw').value=a;
-  document.getElementById('mcomp').value=comp;
-  if(['NBA','Euroleague','Pro A'].includes(comp))document.querySelectorAll('.stfb')[1].click();
-  else document.querySelectorAll('.stfb')[0].click();
-}
-
-function maTab(btn,id){
-  document.querySelectorAll('.rtb').forEach(b=>b.classList.remove('on'));
-  document.querySelectorAll('.tp').forEach(p=>p.classList.remove('on'));
-  btn.classList.add('on');document.getElementById(id)?.classList.add('on');
-}
-
-async function maRun(){
-  const h=document.getElementById('mh').value.trim(),a=document.getElementById('maw').value.trim();
-  const comp=document.getElementById('mcomp').value;
-  const o1=parseFloat(document.getElementById('mo1').value),o2=parseFloat(document.getElementById('mo2').value),o3=parseFloat(document.getElementById('mo3').value);
-  const bank=parseFloat(document.getElementById('mbank').value)||500;
-  const ctx=document.getElementById('mctx').value.trim();
-  if(!h||!a){alert('Sélectionne d\'abord un match dans la liste !');return;}
-  if(!o1||!o3){alert('Saisis les cotes du match dans les champs 1 et 2 !');return;}
-  document.getElementById('mae').style.display='none';
-  document.getElementById('mal2').style.display='flex';
-  document.getElementById('mares').style.display='none';
-  const lms=['Récupération stats...','Calcul probabilités...','Analyse value bets...','Génération rapport...'];
-  let li=0;const lI=setInterval(()=>{const e=document.getElementById('mlmsg');if(e&&li<lms.length)e.textContent=lms[li++];},1000);
-  const{f1,fN,f2}=fp(o1,o2||0,o3);
-  const fH=gf(0.55),fA=gf(0.45),h2h=gh2();
-  const wHh=h2h.filter(r=>r==='W').length,drh=h2h.filter(r=>r==='D').length,wAh=h2h.filter(r=>r==='L').length;
-  const gH=+(1.2+Math.random()*.8).toFixed(1),gA=+(0.8+Math.random()*.7).toFixed(1);
-  const cH=+(0.7+Math.random()*.6).toFixed(1),cA=+(0.9+Math.random()*.7).toFixed(1);
-  const pH=Math.round(50+Math.random()*10),pA=100-pH;
-  const sH=Math.round(5+Math.random()*6),sA=Math.round(3+Math.random()*5);
-  const mf={home:h,away:a,o1,oN:o2||null,o2:o3};const best=bb(mf);
-  const conf=best.isV?Math.round(68+Math.random()*18):Math.round(48+Math.random()*20);
-  const ab=alts({home:h,away:a,o1,oN:o2||null,o2:o3},f1,fN,f2,maSport==='basket');
-  const kf=Math.max(0,(best.e/100)/((best.odd-1)))*0.5;
-  const km=Math.round(bank*Math.min(kf,0.05)*10)/10,fm=Math.round(bank*0.02*10)/10;
-  const cc=conf>=70?'h':conf>=55?'m':'l';
-  const rc=best.isV?'rh':conf>=55?'rm':'rl';
-  let ai='';
-  try{
-    const pr=`Expert paris sportifs DataScore. Analyse ${maSport==='basket'?'basket':'football'} en français :\nMatch: ${h} vs ${a}${comp?' — '+comp:''}\nCotes: ${o1}/${o2||'—'}/${o3} | Prob: ${f1.toFixed(0)}%/${fN.toFixed(0)}%/${f2.toFixed(0)}%\nForme ${h}: ${fH.join('-')} | ${a}: ${fA.join('-')}\n${ctx?'Contexte: '+ctx:''}\nFournis: 1.Forces&Faiblesses 2.Scénario 3.Recommandation 4.Paris alternatifs 5.Alertes. **Gras** sur points clés.`;
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:pr}]})});
-    const d=await r.json();ai=d.content?.map(c=>c.text||'').join('\n')||'';
-  }catch(e){
-    const wH2=fH.filter(r=>r==='W').length,wA2=fA.filter(r=>r==='W').length;
-    ai=`**Forces & Faiblesses**\n\n**${h} :** ${wH2}/5 victoires, ${gH} buts/match. ${wH2>=3?'Excellente forme.':'Forme inconstante.'}\n\n**${a} :** ${wA2}/5, ${gA} buts/match. ${wA2>=3?'Solide à l\'extérieur.':'Moins performant dehors.'}\n\n**Scénario**\n\n${f1>55?h+' favori':f2>40?'Match serré':'Match équilibré'}. ${gH+gA>2.5?'Match ouvert, buts probables.':'Match fermé et défensif.'}\n\n**Recommandation**\n\n${best.isV?`✅ **Value sur ${best.lbl}** @ ${best.odd.toFixed(2)} — edge +${best.e.toFixed(1)}%`:'⚠️ Pas de value claire sur 1X2.'}\n\n**Alertes**\n\nVérifier blessés et suspensions.`;
-  }
-  clearInterval(lI);
-  const dl=138,doff=dl-(conf/100*dl);
-  const h2html=h2h.map((r,i)=>{const gh2=Math.floor(Math.random()*4),ga2=Math.floor(Math.random()*3);const yr=2024-Math.floor(i/2),mo=String(Math.floor(Math.random()*12+1)).padStart(2,'0');const cls=r==='W'?'hw':r==='D'?'hd':'hl';return `<div class="h2r"><span style="flex:1">${h}</span><span class="h2s ${cls}">${gh2}-${ga2}</span><span style="flex:1;text-align:right">${a}</span><span class="h2d">${mo}/${yr}</span></div>`;}).join('');
-  const simRow=(mise)=>[[h+' gagne',o1],o2?['Nul',o2]:null,[a+' gagne',o3]].filter(Boolean).map(([l,o])=>`<div class="sc3"><div class="sv3" style="color:var(--grn)">+€${(mise*(o-1)).toFixed(2)}</div><div class="sl4">${l} @ ${parseFloat(o).toFixed(2)}</div></div>`).join('');
-  window.simRow=simRow;
-  document.getElementById('mares').innerHTML=`
-  <div class="sbanner">
-    <div class="sbt"><div class="sbn">${h}</div><div class="sbs">Domicile</div><div class="sbf">${fdots(fH)}</div></div>
-    <div class="vs"><div class="vst">VS</div><div class="vsl">${comp||'Match'}</div></div>
-    <div class="sbt"><div class="sbn">${a}</div><div class="sbs">Extérieur</div><div class="sbf">${fdots(fA)}</div></div>
-  </div>
-  <div class="rtbs">
-    <button class="rtb on" onclick="maTab(this,'tp-ai')">🧠 Analyse IA</button>
-    <button class="rtb" onclick="maTab(this,'tp-odds')">💰 Cotes</button>
-    <button class="rtb" onclick="maTab(this,'tp-stats')">📈 Stats</button>
-    <button class="rtb" onclick="maTab(this,'tp-h2h')">⚔️ H2H</button>
-    <button class="rtb" onclick="maTab(this,'tp-mise')">🎯 Mise</button>
-  </div>
-  <div class="tp on" id="tp-ai">
-    ${best.isV?`<div class="va">⭐ Value bet détecté !</div>`:''}
-    <div class="rcard ${rc}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-        <div><div class="rlbl">Recommandation DataScore</div><div class="rbet">${best.lbl}</div></div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
-          <div class="cpill cp${cc}">${cc==='h'?'🟢':cc==='m'?'🟡':'🔴'} ${conf}%</div>
-          <svg width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="19" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="3.5"/><circle cx="24" cy="24" r="19" fill="none" stroke="${conf>=70?'var(--grn)':conf>=55?'var(--amb)':'var(--red)'}" stroke-width="3.5" stroke-dasharray="${dl}" stroke-dashoffset="${doff}" stroke-linecap="round" transform="rotate(-90 24 24)"/><text x="24" y="28" text-anchor="middle" font-size="10" font-weight="700" fill="${conf>=70?'var(--grn)':conf>=55?'var(--amb)':'var(--red)'}">${conf}%</text></svg>
-        </div>
-      </div>
-      <div style="display:flex;align-items:baseline;gap:8px"><div class="rcote">${best.odd.toFixed(2)} <small>cote</small></div>${best.isV?`<span style="font-size:11px;color:var(--grn)">Edge +${best.e.toFixed(1)}%</span>`:''}</div>
-    </div>
-    <div class="aib"><div class="ptl">Probabilités estimées</div>
-      <div class="pbar"><div class="pseg" style="background:var(--acc);width:${f1.toFixed(0)}%">${f1.toFixed(0)}%</div>${o2?`<div class="pseg" style="background:#374151;width:${fN.toFixed(0)}%">${fN.toFixed(0)}%</div>`:''}<div class="pseg" style="background:var(--acc2);width:${f2.toFixed(0)}%">${f2.toFixed(0)}%</div></div>
-      <div class="plbls"><span>${h} ${f1.toFixed(0)}%</span>${o2?`<span>Nul ${fN.toFixed(0)}%</span>`:''}<span>${a} ${f2.toFixed(0)}%</span></div>
-    </div>
-    <div class="aib"><div class="aih"><div class="aii">🤖</div><div class="ait">Analyse DataScore IA</div></div><div class="aic">${ai.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>')}</div></div>
-    <div class="ptl" style="margin:10px 0 8px">Paris alternatifs (≤ 1.90)</div>
-    ${ab.map(b=>`<div class="abi"><div><div class="abl">${b.lbl}</div><div class="abs2">${b.sub}</div></div><div style="text-align:right"><div class="abc">${b.odd.toFixed(2)}</div>${b.val?`<div class="abe">+${b.edg.toFixed(1)}%</div>`:''}</div></div>`).join('')}
-  </div>
-  <div class="tp" id="tp-odds">
-    <div class="og">${[[h+' gagne',o1,f1],o2?['Match nul',o2,fN]:null,[a+' gagne',o3,f2]].filter(Boolean).map(([l,o,f])=>{const im2=ip(o),e2=ep(f,o),iv=e2>3,ib=e2<-8;return `<div class="ocard ${iv?'vv':ib?'bb':''}">${iv?'<div style="position:absolute;top:4px;right:6px;font-size:12px">⭐</div>':''}<div class="ocl">${l}</div><div class="ocd" style="color:${iv?'var(--grn)':ib?'var(--red)':'var(--tx)'}">${o.toFixed(2)}</div><div class="oci">Implicite: ${im2.toFixed(1)}%</div><div class="ocr">Réelle: ${f.toFixed(1)}%</div><div class="oce ${e2>0?'ep':'en'}">${e2>0?'+':''}${e2.toFixed(1)}% edge</div></div>`;}).join('')}</div>
-  </div>
-  <div class="tp" id="tp-stats">
-    <div class="sg">
-      <div class="sc3"><div class="sv3" style="color:var(--acc)">${gH}/${gA}</div><div class="sl4">Buts/match D/E</div></div>
-      <div class="sc3"><div class="sv3" style="color:var(--red)">${cH}/${cA}</div><div class="sl4">Encaissés D/E</div></div>
-      <div class="sc3"><div class="sv3" style="color:var(--grn)">${pH}%/${pA}%</div><div class="sl4">Possession</div></div>
-      <div class="sc3"><div class="sv3" style="color:var(--amb)">${sH}/${sA}</div><div class="sl4">Tirs/match</div></div>
-    </div>
-    <div class="aib"><div class="ptl" style="margin-bottom:8px">Forme récente</div>
-      ${[{t:h,f:fH},{t:a,f:fA}].map(({t,f})=>`<div class="frow2"><div class="ftn">${t}</div><div class="fds">${fdots(f)}</div></div>`).join('')}
-    </div>
-  </div>
-  <div class="tp" id="tp-h2h">
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
-      <div class="sc3"><div class="sv3" style="color:var(--acc)">${wHh}</div><div class="sl4">Victoires ${h}</div></div>
-      <div class="sc3"><div class="sv3" style="color:var(--tx2)">${drh}</div><div class="sl4">Nuls</div></div>
-      <div class="sc3"><div class="sv3" style="color:var(--acc2)">${wAh}</div><div class="sl4">Victoires ${a}</div></div>
-    </div>
-    <div class="aib"><div class="ptl" style="margin-bottom:10px">5 dernières confrontations</div>${h2html}</div>
-  </div>
-  <div class="tp" id="tp-mise">
-    <div class="mise-c"><div class="ptl" style="margin-bottom:10px">Gestion de bankroll DataScore</div>
-      <div class="mg">
-        <div class="mi"><div class="mv">€${bank}</div><div class="ml2">Bankroll</div></div>
-        <div class="mi"><div class="mv" style="color:var(--grn)">€${km}</div><div class="ml2">Mise Kelly</div></div>
-        <div class="mi"><div class="mv" style="color:var(--amb)">€${fm}</div><div class="ml2">Flat 2%</div></div>
-      </div>
-      <div style="background:var(--bg4);border:1px solid var(--line);border-radius:6px;padding:10px;display:flex;justify-content:space-between;align-items:center">
-        <div><div style="font-size:10px;color:var(--tx2)">Mise recommandée</div><div style="font-size:18px;font-weight:700;color:var(--acc);font-family:monospace">€${km}</div><div style="font-size:10px;color:var(--tx3);margin-top:2px">Sur : ${best.lbl} @ ${best.odd.toFixed(2)}</div></div>
-        <div style="text-align:right"><div style="font-size:10px;color:var(--tx3)">Gain potentiel</div><div style="font-size:16px;font-weight:700;color:var(--grn)">+€${(km*(best.odd-1)).toFixed(2)}</div><div style="font-size:10px;color:${conf>=70?'var(--grn)':conf>=55?'var(--amb)':'var(--red)'}">${conf>=70?'Risque faible':conf>=55?'Risque modéré':'Risque élevé'}</div></div>
-      </div>
-    </div>
-    <div class="aib"><div class="ptl" style="margin-bottom:10px">Simulateur de gain</div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><label style="font-size:11px;color:var(--tx2);white-space:nowrap">Mise: <span id="sv">50</span>€</label><input type="range" min="1" max="500" value="50" step="1" style="flex:1;accent-color:var(--acc)" oninput="document.getElementById('sv').textContent=this.value;document.getElementById('simgrid').innerHTML=simRow(+this.value)"></div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px" id="simgrid">${simRow(50)}</div>
-    </div>
-  </div>`;
-  document.getElementById('mal2').style.display='none';
-  document.getElementById('mares').style.display='block';
-}
-
-// ═══ MATCHES PAR COMPETITION ═══
-const TEAMS_BY_LEAGUE = {
-  'Ligue 1': ['PSG','Olympique Marseille','OL','AS Monaco','LOSC Lille','Stade Rennais','OGC Nice','RC Lens','Strasbourg','Toulouse FC','Stade Brestois','Montpellier','Nantes','RC Strasbourg','Le Havre','Reims','Auxerre'],
-  'Premier League': ['Arsenal','Chelsea','Man City','Liverpool','Tottenham','Man United','Newcastle','Aston Villa','West Ham','Brighton','Wolves','Fulham','Everton','Crystal Palace','Brentford','Nottm Forest','Burnley','Sheffield Utd','Luton'],
-  'La Liga': ['Real Madrid','FC Barcelone','Atletico Madrid','Sevilla FC','Real Sociedad','Athletic Bilbao','Villarreal','Real Betis','Valencia','Getafe','Celta Vigo','Girona','Las Palmas','Rayo Vallecano','Osasuna','Mallorca'],
-  'Serie A': ['Inter Milan','AC Milan','Juventus','Napoli','Lazio','Roma','Atalanta','Fiorentina','Bologna','Torino','Monza','Udinese','Sassuolo','Empoli','Lecce','Frosinone','Cagliari','Verona'],
-  'Bundesliga': ['Bayern Munich','Borussia Dortmund','Bayer Leverkusen','RB Leipzig','Union Berlin','SC Freiburg','Borussia Mönchengladbach','Eintracht Frankfurt','Wolfsburg','Stuttgart','Mainz','Augsburg','Bochum','Köln','Werder Bremen'],
-  'Champions League': ['Real Madrid','Man City','Bayern Munich','PSG','Arsenal','Barcelona','Inter Milan','Atletico Madrid','Borussia Dortmund','Liverpool','Napoli','Porto','Benfica','Ajax','Juventus','Lazio','PSV','Celtic','RB Leipzig','Feyenoord'],
-  'Europa League': ['Roma','Bayer Leverkusen','Séville','Man United','Juventus','Fiorentina','Lyon','West Ham','Atalanta','Sporting CP','Villarreal','Real Betis','Rennes','Ajax','Slavia Prague','Union Saint-Gilloise'],
-  'NBA': ['Boston Celtics','Miami Heat','LA Lakers','Golden State Warriors','Denver Nuggets','Phoenix Suns','Milwaukee Bucks','Philadelphia 76ers','Dallas Mavericks','LA Clippers','Brooklyn Nets','Chicago Bulls','Toronto Raptors','Memphis Grizzlies','Sacramento Kings'],
-  'Euroleague': ['Real Madrid','FC Barcelone','CSKA Moscou','Fenerbahçe','Panathinaikos','Olympiakos','Bayern Munich','Zalgiris','Maccabi Tel Aviv','AS Monaco','Virtus Bologne','Baskonia'],
-  'Pro A': ['ASVEL','Monaco','Le Mans','Cholet','Strasbourg','Boulazac','Pau-Lacq-Orthez','Metropolitans 92','Limoges','Dijon','Châlon-sur-Saône'],
-};
-
-// Paires de matchs aléatoires ou fixes selon compétition
-function getMatchPairs(league) {
-  const teams = TEAMS_BY_LEAGUE[league];
-  if (!teams) return [];
-  // Générer des paires logiques
-  const pairs = [];
-  for (let i = 0; i < teams.length - 1; i += 2) {
-    if (teams[i+1]) pairs.push([teams[i], teams[i+1]]);
-  }
-  // Ajouter quelques matchs supplémentaires si compétition avec beaucoup d'équipes
-  if (teams.length > 10) {
-    pairs.push([teams[2], teams[5]]);
-    pairs.push([teams[3], teams[7]]);
-    pairs.push([teams[1], teams[4]]);
-  }
-  return pairs;
-}
-
-async function updateMatchDropdown(league) {
-  const sel = document.getElementById('match-select');
-  sel.innerHTML = '<option value="">⏳ Chargement des matchs...</option>';
-  if (!league) { sel.innerHTML = '<option value="">— Choisir d\'abord une compétition —</option>'; return; }
-
-  const code = COMP_CODES[league];
-  if (!code) { sel.innerHTML = '<option value="">— Compétition non disponible —</option>'; return; }
-
-  try {
-    const today = new Date();
-    let found = [];
-
-    for (let i = 0; i <= 7; i++) {
-      const d = new Date(today); d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
-      const data = await apiFetch('/v4/competitions/'+code+'/matches?dateFrom='+dateStr+'&dateTo='+dateStr).catch(()=>null);
-      if (data && data.matches && data.matches.length > 0) {
-        data.matches.forEach(m => {
-          const kickoff = new Date(m.utcDate);
-          const timeStr = kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Paris'});
-          const days_fr = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
-          const dayLabel = i===0 ? 'Auj.' : days_fr[kickoff.getDay()]+' '+kickoff.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'});
-          found.push({
-            home: m.homeTeam.shortName||m.homeTeam.name,
-            away: m.awayTeam.shortName||m.awayTeam.name,
-            o1:null, oN:null, o2:null,
-            time:timeStr, day:dayLabel, offset:i
-          });
-        });
-        if(found.length > 0 && i >= 1) break;
-      }
-    }
-
-    if (found.length > 0) {
-      sel.innerHTML = '<option value="">— Choisir un match —</option>';
-      let lastDay = '';
-      found.forEach(m => {
-        if (m.day !== lastDay) {
-          const grp = document.createElement('optgroup');
-          grp.label = m.offset===0 ? "Aujourd\'hui" : m.day;
-          sel.appendChild(grp);
-          lastDay = m.day;
-        }
-        const opt = document.createElement('option');
-        opt.value = JSON.stringify({home:m.home, away:m.away, o1:null, oN:null, o2:null});
-        opt.textContent = m.home+' vs '+m.away+'  ('+m.time+')';
-        sel.lastElementChild.appendChild(opt);
-      });
-    } else {
-      sel.innerHTML = '<option value="">— Aucun match trouvé (vérif. limite API) —</option>';
-    }
-  } catch(e) {
-    sel.innerHTML = '<option value="">— Erreur de chargement —</option>';
-  }
-}
-
-function fillDropdown(sel, matches) {
-  sel.innerHTML = '<option value="">— Choisir un match —</option>';
-  matches.forEach(m => {
-    const opt = document.createElement('option');
-    opt.value = JSON.stringify({home: m.home, away: m.away, o1: m.o1, oN: m.oN, o2: m.o2});
-    opt.textContent = `${m.home} vs ${m.away}  (${m.time})`;
-    sel.appendChild(opt);
+  // Forme
+  let formeHtml='<div class="aib"><div class="ptl">Forme récente (vraies stats)</div>';
+  [{t:m.home,f:fH},{t:m.away,f:fA}].forEach(({t,f})=>{
+    formeHtml+='<div class="frow2"><div class="ftn">'+t+'</div><div class="fds">'+fdots(Array.isArray(f)?f:f.map(x=>x.result||x))+'</div></div>';
   });
-}
+  if(homeStats) formeHtml+='<div style="font-size:9px;color:var(--grn);margin-top:4px">✓ Stats réelles chargées</div>';
+  formeHtml+='</div>';
 
-function onMatchSelect(val) {
-  const info = document.getElementById('match-selected-info');
-  const label = document.getElementById('match-selected-label');
-  if (!val) {
-    if(info) info.style.display='none';
-    document.getElementById('mh').value='';
-    document.getElementById('maw').value='';
-    return;
+  // Stats réelles
+  let statsHtml='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">';
+  statsHtml+='<div class="sc2"><div class="sv2" style="color:var(--acc)">'+gH+'/'+gA+'</div><div class="sl3">Buts/match D/E</div></div>';
+  statsHtml+='<div class="sc2"><div class="sv2" style="color:var(--amb)">'+wH+'-'+dr+'-'+wA+'</div><div class="sl3">H2H (V-N-D)</div></div>';
+  if(homeStats){
+    statsHtml+='<div class="sc2"><div class="sv2" style="color:var(--grn)">'+homeStats.cleanSheetPct+'%</div><div class="sl3">Clean sheets dom.</div></div>';
+    statsHtml+='<div class="sc2"><div class="sv2" style="color:var(--grn)">'+awayStats.cleanSheetPct+'%</div><div class="sl3">Clean sheets ext.</div></div>';
   }
-  try {
-    const data = JSON.parse(val);
-    document.getElementById('mh').value = data.home || '';
-    document.getElementById('maw').value = data.away || '';
-    if (data.o1) document.getElementById('mo1').value = data.o1.toFixed(2);
-    else document.getElementById('mo1').value = '';
-    if (data.oN) document.getElementById('mo2').value = data.oN.toFixed(2);
-    else document.getElementById('mo2').value = '';
-    if (data.o2) document.getElementById('mo3').value = data.o2.toFixed(2);
-    else document.getElementById('mo3').value = '';
-    if(info && label) {
-      label.textContent = (data.home||'?') + ' vs ' + (data.away||'?') + (data.o1 ? ' — Cotes : '+data.o1.toFixed(2)+'/'+(data.oN?data.oN.toFixed(2)+'/':'')+(data.o2?data.o2.toFixed(2):'') : ' — Cotes à saisir manuellement');
-      info.style.display='block';
-    }
-  } catch(e) {}
+  statsHtml+='</div>';
+
+  // Paris alternatifs
+  let altsHtml='';
+  if(ab.length>0){
+    altsHtml='<div class="aib"><div class="ptl">Paris recommandés (cote ≤ 2.00)</div>';
+    ab.forEach(b=>{
+      altsHtml+='<div class="abi">';
+      altsHtml+='<div><div class="abl">'+b.lbl+'</div><div class="abs2">'+b.sub+'</div></div>';
+      altsHtml+='<div style="text-align:right"><div class="abc">'+b.odd.toFixed(2)+'</div>';
+      if(b.val) altsHtml+='<div class="abe">+'+b.edg.toFixed(0)+'% confiance</div>';
+      altsHtml+='</div></div>';
+    });
+    altsHtml+='</div>';
+  }
+
+  // Analyse IA
+  let ai='';
+  try{
+    const prompt='Expert paris sportifs. 4 phrases concises en français. Match: '+m.home+' vs '+m.away+' ('+m.leagueName+'). Cotes: '+(m.o1||'N/D')+'/'+(m.oN||'—')+'/'+(m.o2||'N/D')+'. Prob: '+f1.toFixed(0)+'%/'+fN.toFixed(0)+'%/'+f2.toFixed(0)+'%. Forme dom: '+fH.join('-')+', ext: '+fA.join('-')+'. '+(bestDC?'Recommandation: '+bestDC.label+' @ '+bestDC.cote.toFixed(2):'')+'**gras** sur points clés. Commence directement.';
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:300,messages:[{role:'user',content:prompt}]})});
+    const d=await r.json();ai=d.content?.map(c=>c.text||'').join('\n')||'';
+  }catch(e){
+    ai='**'+m.home+'** forme récente : '+fH.slice(-5).join('-')+'. **'+m.away+'** : '+fA.slice(-5).join('-')+'. '+(bestDC?'Recommandation : **'+bestDC.label+'** @ '+bestDC.cote.toFixed(2)+' (confiance '+bestDC.score+'%).':' Analyser les cotes avec attention.')+' Vérifier blessés avant de miser.';
+  }
+  clearInterval(lI);
+
+  let aiHtml='<div class="aib"><div class="aih"><div class="aii">🤖</div><div class="ait">Analyse DataScore IA</div></div>';
+  aiHtml+='<div class="aic">'+ai.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>')+'</div></div>';
+
+  let openBtn='<button onclick="openInMA(''+lid+'',''+mid+'')" style="width:100%;padding:9px;background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px">Analyse complète avec graphiques ↗</button>';
+
+  ac.innerHTML='<div class="ap">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">'
+    +'<div><div style="font-size:13px;font-weight:700">'+m.home+scoreDisplay+'<span style="color:var(--tx3)"> vs </span>'+m.away+'</div>'
+    +'<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+m.leagueFlag+' '+m.leagueName+' · '+m.time+statusDisplay+bkDisplay+'</div></div>'
+    +'<button onclick="closeFsA()" style="background:var(--bg4);border:1px solid var(--line2);border-radius:5px;padding:3px 8px;font-size:11px;color:var(--tx2);cursor:pointer">✕</button></div>'
+    +recoHtml+probaHtml+statsHtml+formeHtml+altsHtml+aiHtml+openBtn
+    +'</div>';
 }
-
-// Mettre à jour la liste quand la compétition change
-const origMcomp = document.getElementById('mcomp');
-if (origMcomp) {
-  origMcomp.addEventListener('change', function() { updateMatchDropdown(this.value); });
-}
-
-document.getElementById('mdate').valueAsDate=new Date();
-
-// Démarrer si déjà authentifié
-if(sessionStorage.getItem('ds_auth')==='1'){loadMatches();}
-</script>
-</body>
-</html>
