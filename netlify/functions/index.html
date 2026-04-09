@@ -454,9 +454,30 @@ const COMP_CODES={
 };
 
 async function apiFetch(endpoint){
-  const r=await fetch('/.netlify/functions/api?path='+encodeURIComponent(endpoint));
+  // football-data.org
+  const r=await fetch('/.netlify/functions/api?source=football&path='+encodeURIComponent(endpoint));
   if(!r.ok)throw new Error('API '+r.status);
   return r.json();
+}
+
+async function apiFetchBDL(endpoint){
+  // BallDontLie — NBA + Soccer
+  const r=await fetch('/.netlify/functions/api?source=bdl&path='+encodeURIComponent(endpoint));
+  if(!r.ok)throw new Error('BDL API '+r.status);
+  return r.json();
+}
+
+async function apiFetchESPN(endpoint){
+  const r=await fetch('/.netlify/functions/api?source=espn&path='+encodeURIComponent(endpoint));
+  if(!r.ok)throw new Error('ESPN API '+r.status);
+  return r.json();
+}
+
+function getESPNDate(offset=0){
+  const d=new Date(); d.setDate(d.getDate()+offset);
+  return d.getFullYear()+
+    String(d.getMonth()+1).padStart(2,'0')+
+    String(d.getDate()).padStart(2,'0');
 }
 
 async function loadMatches(){
@@ -465,15 +486,16 @@ async function loadMatches(){
   document.getElementById('api-status').textContent='⏳ Chargement...';
   allMatches=[];
   const date=getDate(dayOffset);
+  const espnDate=getESPNDate(dayOffset);
 
   try{
+    // ── FOOTBALL via football-data.org ──
     const entries=Object.entries(COMP_CODES);
-    const results=await Promise.all(entries.map(([name,code])=>
+    const footballResults=await Promise.all(entries.map(([name,code])=>
       apiFetch('/v4/competitions/'+code+'/matches?dateFrom='+date+'&dateTo='+date).catch(()=>null)
     ));
 
-    let total=0;
-    results.forEach((data,i)=>{
+    footballResults.forEach((data,i)=>{
       if(!data||!data.matches||data.matches.length===0)return;
       const leagueName=entries[i][0];
       const info=Object.values(LEAGUE_INFO).find(x=>x.name===leagueName)||{flag:'🏆',country:'Europe',sport:'football'};
@@ -488,21 +510,76 @@ async function loadMatches(){
           scoreStr=m.score.fullTime.home+'-'+m.score.fullTime.away;
         }
         allMatches.push({
-          id:'f'+m.id,leagueId:lid,leagueName:leagueName,
+          id:'f'+m.id,leagueId:lid,leagueName,
           leagueFlag:info.flag||'🏆',leagueCountry:info.country||'Europe',sport:'football',
           home:m.homeTeam.shortName||m.homeTeam.name,
           away:m.awayTeam.shortName||m.awayTeam.name,
           time:timeStr,status,liveMin,score:scoreStr,
           o1:null,oN:null,o2:null
         });
-        total++;
       });
     });
 
+    // ── NBA via BallDontLie ──
+    const nbaData=await apiFetchBDL('/v1/nba/games?dates[]='+date+'&per_page=20').catch(()=>null);
+    if(nbaData&&nbaData.data){
+      nbaData.data.forEach(g=>{
+        const kickoff=new Date(g.date);
+        const timeStr=kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Paris'});
+        let status='sched',liveMin=null,scoreStr=null;
+        if(g.status==='Final'){
+          status='ft';
+          scoreStr=g.home_team_score+'-'+g.visitor_team_score;
+        } else if(g.status&&g.status!=='scheduled'&&g.period>0){
+          status='live';
+          liveMin='Q'+g.period+' '+g.time;
+        }
+        allMatches.push({
+          id:'n'+g.id,leagueId:12,leagueName:'NBA',
+          leagueFlag:'🇺🇸',leagueCountry:'États-Unis',sport:'basket',
+          home:g.home_team.full_name,
+          away:g.visitor_team.full_name,
+          time:timeStr,status,liveMin,score:scoreStr,
+          o1:null,oN:null,o2:null
+        });
+      });
+    }
+
+    // Fallback ESPN si BDL ne retourne rien pour NBA
+    if(!nbaData||!nbaData.data||nbaData.data.length===0){
+      const espnData=await apiFetchESPN('/apis/site/v2/sports/basketball/nba/scoreboard?dates='+espnDate).catch(()=>null);
+      if(espnData&&espnData.events){
+        espnData.events.forEach(g=>{
+          const comp=g.competitions&&g.competitions[0];
+          if(!comp)return;
+          const home=comp.competitors.find(c=>c.homeAway==='home');
+          const away=comp.competitors.find(c=>c.homeAway==='away');
+          if(!home||!away)return;
+          const kickoff=new Date(comp.date);
+          const timeStr=kickoff.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Paris'});
+          let status='sched',liveMin=null,scoreStr=null;
+          const st=comp.status?.type?.name||'';
+          if(st==='STATUS_IN_PROGRESS'){status='live';liveMin='Q'+(comp.status?.period||'?')+' '+(comp.status?.displayClock||'');}
+          else if(st==='STATUS_FINAL'){status='ft';scoreStr=home.score+'-'+away.score;}
+          allMatches.push({
+            id:'e'+g.id,leagueId:12,leagueName:'NBA',
+            leagueFlag:'🇺🇸',leagueCountry:'États-Unis',sport:'basket',
+            home:home.team.shortDisplayName||home.team.name,
+            away:away.team.shortDisplayName||away.team.name,
+            time:timeStr,status,liveMin,score:scoreStr,
+            o1:null,oN:null,o2:null
+          });
+        });
+      }
+    }
+
+    const total=allMatches.length;
     document.getElementById('api-status').className='apistatus api-ok';
     document.getElementById('api-status').textContent='✓ DataScore Live — '+total+' matchs';
     renderMatches();
+
   }catch(e){
+    console.error(e);
     document.getElementById('api-status').className='apistatus api-err';
     document.getElementById('api-status').textContent='✗ Erreur API';
     document.getElementById('fsmain').innerHTML='<div class="nodata"><div style="font-size:32px;opacity:.3">🔌</div><p><strong style="color:var(--tx2)">Erreur de chargement</strong><br>Actualise la page.</p></div>';
