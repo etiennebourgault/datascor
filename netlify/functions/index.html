@@ -511,53 +511,79 @@ function bb(m) {
 // ALGORITHME DOUBLE CHANCE
 // ══════════════════════════════════════════════
 function computeDC(homeStats, awayStats, o1, oN, o2) {
-  // Probabilités implicites (vraies proba après correction de marge)
-  var o1s = o1||2.0, oNs = oN||3.5, o2s = o2||3.0;
-  var probs = fp(o1s, oNs, o2s);
-  var f1=probs.f1, fN=probs.fN, f2=probs.f2;
+  // ══════════════════════════════════════════════════
+  // ALGORITHME 100% STATS RÉELLES
+  // Les cotes servent UNIQUEMENT à calculer la cote DC
+  // La confiance est calculée exclusivement sur les stats
+  // ══════════════════════════════════════════════════
 
-  // Stats réelles si disponibles, sinon estimation depuis les cotes
-  var hWin  = homeStats ? homeStats.winRate  : f1;
-  var hDraw = homeStats ? homeStats.drawRate : fN;
-  var aWin  = awayStats ? awayStats.winRate  : f2;
-  var aDraw = awayStats ? awayStats.drawRate : fN;
+  // Valeurs par défaut si pas de stats réelles disponibles
+  var gH  = homeStats ? parseFloat(homeStats.goalsFor)     : 1.40;
+  var gA  = awayStats ? parseFloat(awayStats.goalsFor)     : 1.10;
+  var gcH = homeStats ? parseFloat(homeStats.goalsAgainst) : 1.20;
+  var gcA = awayStats ? parseFloat(awayStats.goalsAgainst) : 1.40;
+  var hWin  = homeStats ? homeStats.winRate  : 45;
+  var hDraw = homeStats ? homeStats.drawRate : 25;
+  var hLoss = homeStats ? homeStats.losses/(homeStats.total||1)*100 : 30;
+  var aWin  = awayStats ? awayStats.winRate  : 35;
+  var aDraw = awayStats ? awayStats.drawRate : 25;
+  var aLoss = awayStats ? awayStats.losses/(awayStats.total||1)*100 : 40;
+  var hCS   = homeStats ? homeStats.cleanSheetPct : 30;
+  var aCS   = awayStats ? awayStats.cleanSheetPct : 25;
 
-  // Moyennes de buts
-  var gH  = homeStats ? parseFloat(homeStats.goalsFor)     : 1.4;
-  var gA  = awayStats ? parseFloat(awayStats.goalsFor)     : 1.1;
-  var gcH = homeStats ? parseFloat(homeStats.goalsAgainst) : 1.1;
-  var gcA = awayStats ? parseFloat(awayStats.goalsAgainst) : 1.3;
+  // ── SCORE 1X (domicile ne perd pas) ──
+  // Critères favorables au 1X :
+  // + domicile gagne souvent à domicile
+  // + domicile fait souvent nul
+  // + extérieur perd souvent en déplacement
+  // + extérieur encaisse beaucoup
+  // + domicile a beaucoup de clean sheets (défense solide)
 
-  // Double chance 1X = domicile gagne OU nul
-  // Score élevé si : forte proba 1X dans les cotes + bon taux victoire/nul dom. + faiblesse extérieur
-  var score1X = (f1+fN)*0.40       // 40% : probabilité marché (cotes)
-              + hWin  * 0.20       // 20% : taux victoire équipe domicile
-              + hDraw * 0.15       // 15% : taux nul équipe domicile
-              + (100-aWin) * 0.15  // 15% : faiblesse de l'extérieur
-              + (gcA > gcH ? 10 : 0); // 10% bonus si extérieur encaisse plus
+  var s1X = 0;
+  s1X += hWin  * 0.30;   // 30% : taux victoire domicile (principal indicateur)
+  s1X += hDraw * 0.20;   // 20% : taux nul domicile
+  s1X += aLoss * 0.25;   // 25% : taux défaite extérieur en déplacement
+  s1X += (gcA > 1.3 ? 15 : gcA > 1.0 ? 8 : 3);  // 15% défense ext. poreuse
+  s1X += (gH  > 1.5 ? 10 : gH  > 1.2 ? 5 : 0);  // attaque dom. prolifique
+  s1X += (hCS > 40  ? 5  : hCS > 25  ? 2 : 0);   // clean sheets dom.
 
-  // Double chance X2 = nul OU extérieur gagne
-  // Score élevé si : forte proba X2 dans les cotes + bon taux extérieur + faiblesse domicile
-  var scoreX2 = (f2+fN)*0.40
-              + aWin  * 0.20
-              + aDraw * 0.15
-              + (100-hWin) * 0.15
-              + (gcH > gcA ? 10 : 0); // 10% bonus si domicile encaisse plus
+  // ── SCORE X2 (extérieur ne perd pas) ──
+  var sX2 = 0;
+  sX2 += aWin  * 0.30;
+  sX2 += aDraw * 0.20;
+  sX2 += hLoss * 0.25;
+  sX2 += (gcH > 1.3 ? 15 : gcH > 1.0 ? 8 : 3);
+  sX2 += (gA  > 1.3 ? 10 : gA  > 1.0 ? 5 : 0);
+  sX2 += (aCS > 35  ? 5  : aCS > 20  ? 2 : 0);
 
-  var dc1X = Math.round(Math.min(score1X, 95));
-  var dcX2 = Math.round(Math.min(scoreX2, 95));
+  // Normaliser sur 100 (les scores peuvent dépasser 100 si toutes les stats sont bonnes)
+  var dc1X = Math.round(Math.min(s1X, 95));
+  var dcX2 = Math.round(Math.min(sX2, 95));
 
-  // Over/Under basé sur les vraies moyennes
-  var avgGoals = (gH + gA + gcH + gcA) / 2;
-  var over25   = Math.round(Math.min(avgGoals / 3.5 * 100, 92));
-  var under25  = 100 - over25;
-  var btts     = Math.round(Math.min((gH + gA) / 3.0 * 100, 88));
+  // ── OVER/UNDER 2.5 buts ──
+  // Basé sur les moyennes de buts combinées des deux équipes
+  var totalGoals = gH + gA + gcH + gcA; // buts marqués + encaissés des deux équipes
+  var avgPerMatch = totalGoals / 2;     // moyenne par match
+  var over25 = Math.round(Math.min(avgPerMatch / 3.2 * 100, 92));
+  var under25 = 100 - over25;
+
+  // ── BTTS (les deux marquent) ──
+  // Élevé si les deux équipes marquent souvent et les défenses sont poreuses
+  var bttsScore = ((gH > 1.2 ? 40 : 25) + (gA > 1.0 ? 35 : 20) + (gcH > 1.2 ? 15 : 5) + (gcA > 1.2 ? 10 : 0));
+  var btts = Math.round(Math.min(bttsScore, 88));
+
+  // Pour affichage des probabilités (estimation sans biais bookmaker)
+  // On utilise les stats pour estimer les vraies probas
+  var totalW = hWin + aWin;
+  var f1 = totalW > 0 ? Math.round(hWin / (hWin + hDraw/2 + aWin) * 100) : 40;
+  var f2 = totalW > 0 ? Math.round(aWin / (hWin + aDraw/2 + aWin) * 100) : 35;
+  var fN = Math.max(100 - f1 - f2, 10);
 
   return {
     dc1X: dc1X, dcX2: dcX2,
     over25: over25, under25: under25, btts: btts,
-    avgGoals: avgGoals.toFixed(2),
-    f1: Math.round(f1), fN: Math.round(fN), f2: Math.round(f2)
+    avgGoals: avgPerMatch.toFixed(2),
+    f1: f1, fN: fN, f2: f2
   };
 }
 
@@ -699,8 +725,15 @@ function renderDatebar() {
   var days_fr = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
   var html = '';
   for (var i=0; i<8; i++) {
-    var d = new Date(); d.setDate(d.getDate()+i);
-    var label = i===0 ? 'Auj. '+pad(d.getDate())+'/'+pad(d.getMonth()+1) : days_fr[d.getDay()]+' '+pad(d.getDate())+'/'+pad(d.getMonth()+1);
+    // Utiliser le fuseau Europe/Paris pour l'affichage
+    var d = new Date();
+    d.setDate(d.getDate()+i);
+    var opts = {weekday:'short', day:'2-digit', month:'2-digit', timeZone:'Europe/Paris'};
+    var parts = d.toLocaleDateString('fr-FR', opts).split(' ');
+    // Format: "sam. 12/04" -> "Sam 12/04"
+    var dayName = days_fr[new Date(d.toLocaleDateString('en-US',{timeZone:'Europe/Paris'})).getDay()];
+    var dateStr = d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',timeZone:'Europe/Paris'});
+    var label = i===0 ? 'Auj. '+dateStr : dayName+' '+dateStr;
     html += '<button class="dbn'+(i===0?' on':'')+'" data-offset="'+i+'" onclick="setDay('+i+',this)">'+label+'</button>';
   }
   html += '<button class="rbtn" onclick="loadMatches()">↻ Actualiser</button>';
@@ -774,16 +807,43 @@ async function fsSel(lid, mid) {
   var f1=probs.f1, fN=probs.fN, f2=probs.f2;
   var best = m.o1 ? bb(m) : {lbl:'Cotes indisponibles',s:'?',odd:0,e:0,isV:false};
 
-  // Stats réelles
+  // Stats BallDontLie (standings saison 2025-2026)
   var homeStats=null, awayStats=null, dcScores=null;
-  var leagueCode = COMP_CODES[m.leagueName]||null;
-  var rawData = allMatchesRaw[m.id]||null;
-  if (rawData&&rawData.homeTeam&&rawData.homeTeam.id&&leagueCode) {
-    try {
-      var statsResult = await fetchTeamStats(rawData.homeTeam.id, rawData.awayTeam.id);
-      if (statsResult) { homeStats=statsResult.home; awayStats=statsResult.away; }
-    } catch(e) {}
-  }
+  try {
+    var standings = await loadStandings(m.leagueName);
+    if (standings && Object.keys(standings).length > 0) {
+      var hsRaw = findTeamInStandings(standings, m.home);
+      var asRaw = findTeamInStandings(standings, m.away);
+      if (hsRaw) {
+        homeStats = {
+          winRate:       hsRaw.winRate,
+          drawRate:      hsRaw.drawRate,
+          lossRate:      hsRaw.lossRate,
+          goalsFor:      hsRaw.goalsForAvg,
+          goalsAgainst:  hsRaw.goalsAgainstAvg,
+          cleanSheetPct: hsRaw.cleanSheetPct,
+          rank:          hsRaw.rank,
+          gamesPlayed:   hsRaw.gamesPlayed,
+          form:          genFormFromStats(hsRaw),
+          total:         hsRaw.gamesPlayed
+        };
+      }
+      if (asRaw) {
+        awayStats = {
+          winRate:       asRaw.winRate,
+          drawRate:      asRaw.drawRate,
+          lossRate:      asRaw.lossRate,
+          goalsFor:      asRaw.goalsForAvg,
+          goalsAgainst:  asRaw.goalsAgainstAvg,
+          cleanSheetPct: asRaw.cleanSheetPct,
+          rank:          asRaw.rank,
+          gamesPlayed:   asRaw.gamesPlayed,
+          form:          genFormFromStats(asRaw),
+          total:         asRaw.gamesPlayed
+        };
+      }
+    }
+  } catch(e) { console.error('BDL standings error:', e); }
   dcScores = computeDC(homeStats, awayStats, m.o1, m.oN, m.o2);
 
   var fH = homeStats ? homeStats.form : gf(0.55);
@@ -798,10 +858,18 @@ async function fsSel(lid, mid) {
   if (m.o1&&m.oN&&m.o2) {
     var c1X = roundOdd(1/((1/m.o1)+(1/m.oN)));
     var cX2 = roundOdd(1/((1/m.o2)+(1/m.oN)));
-    if (dcScores.dc1X>=dcScores.dcX2&&c1X>=1.20)
-      bestDC = {label:'Double chance 1X ('+m.home+' ou Nul)', cote:c1X, score:dcScores.dc1X};
-    else if (cX2>=1.20)
-      bestDC = {label:'Double chance X2 (Nul ou '+m.away+')', cote:cX2, score:dcScores.dcX2};
+    // Choisir la meilleure double chance (score le plus élevé)
+    // avec cote dans la plage cible 1.20 - 1.80
+    var opts = [];
+    if (c1X>=1.20&&c1X<=1.60) opts.push({label:'Double chance 1X ('+m.home+' ou Nul)',cote:c1X,score:dcScores.dc1X});
+    if (cX2>=1.20&&cX2<=1.60) opts.push({label:'Double chance X2 (Nul ou '+m.away+')',cote:cX2,score:dcScores.dcX2});
+    if (opts.length>0) bestDC = opts.sort(function(a,b){return b.score-a.score;})[0];
+  } else if (m.o1&&!m.oN) {
+    // Basket : pas de nul, on recommande le favori selon proba
+    var favCote = f1>f2 ? m.o1 : m.o2;
+    var favLabel = f1>f2 ? m.home+' gagne' : m.away+' gagne';
+    var favScore = Math.round(Math.max(f1,f2));
+    if (favCote>=1.20&&favCote<=1.60) bestDC={label:favLabel,cote:favCote,score:favScore};
   }
 
   // Analyse IA
@@ -828,7 +896,13 @@ async function fsSel(lid, mid) {
     recoHtml = '<div class="rcard '+rc+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div class="rlbl">Recommandation DataScore</div><div class="rbet">'+best.lbl+'</div></div><div class="cpill cp'+cc+'">'+(cc==='h'?'🟢':cc==='m'?'🟡':'🔴')+' '+conf+'%</div></div><div class="rcote">'+best.odd.toFixed(2)+' <small>cote</small></div></div>';
   }
 
-  var statsReal = homeStats ? '<span style="font-size:9px;color:var(--grn);margin-top:4px;display:block">✓ Stats réelles chargées</span>' : '<span style="font-size:9px;color:var(--tx3);margin-top:4px;display:block">Données estimées</span>';
+  var statsSource = '';
+  if (homeStats && homeStats.rank !== undefined) {
+    statsSource = '<div style="font-size:9px;color:var(--grn);margin-top:5px;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.15);border-radius:4px;padding:4px 8px;">✓ Stats réelles BallDontLie — Saison 2025-2026 · '+m.home+' #'+homeStats.rank+' · '+m.away+' #'+(awayStats?awayStats.rank:'?')+'</div>';
+  } else {
+    statsSource = '<div style="font-size:9px;color:var(--tx3);margin-top:5px;">Données estimées (standings non disponibles)</div>';
+  }
+  var statsReal = statsSource;
 
   var altsHtml = '<div class="aib"><div class="ptl">Paris recommandés</div>';
   var alts = buildAlts(m, dcScores, f1, fN, f2);
@@ -870,12 +944,116 @@ function buildAlts(m, dc, f1, fN, f2) {
   res.push({lbl:'Over 2,5 buts',sub:'Moy. '+dc.avgGoals+' buts combinés',odd:+(1.55+Math.random()*.2).toFixed(2),val:dc.over25>=60,conf:dc.over25});
   if (dc.under25>=55) res.push({lbl:'Under 2,5 buts',sub:'Match fermé attendu',odd:+(1.50+Math.random()*.2).toFixed(2),val:true,conf:dc.under25});
   res.push({lbl:'BTTS Oui',sub:'Les deux équipes marquent',odd:+(1.65+Math.random()*.2).toFixed(2),val:dc.btts>=60,conf:dc.btts});
-  return res.filter(function(b){return b.odd>=1.20&&b.odd<=2.00;}).slice(0,4);
+  return res.filter(function(b){return b.odd>=1.20&&b.odd<=1.60;}).slice(0,4);
 }
 
 // ══════════════════════════════════════════════
 // VRAIES STATS VIA API
 // ══════════════════════════════════════════════
+
+// ══════════════════════════════════════════════
+// STANDINGS BALLDONTLIE — Gratuit, saison 2025-2026
+// Cache global rechargé une fois par session
+// ══════════════════════════════════════════════
+const BDL_PATHS = {
+  'Ligue 1':         '/ligue1/v1',
+  'Premier League':  '/epl/v2',
+  'La Liga':         '/laliga/v1',
+  'Serie A':         '/seriea/v1',
+  'Bundesliga':      '/bundesliga/v1',
+  'Champions League':'/ucl/v1',
+  'Europa League':   '/uel/v1'
+};
+
+var standingsCache = {}; // { 'Ligue 1': { 'PSG': {...}, 'Marseille': {...} } }
+var standingsLoaded = {}; // pour éviter de recharger
+
+async function apiFetchBDL(path) {
+  var r = await fetch('/.netlify/functions/api?source=bdl&path=' + encodeURIComponent(path));
+  if (!r.ok) throw new Error('BDL ' + r.status);
+  return r.json();
+}
+
+async function loadStandings(leagueName) {
+  if (standingsLoaded[leagueName]) return standingsCache[leagueName] || {};
+  var bdlPath = BDL_PATHS[leagueName];
+  if (!bdlPath) return {};
+  try {
+    var data = await apiFetchBDL(bdlPath + '/standings?season=2025');
+    if (!data || !data.data) return {};
+    var map = {};
+    data.data.forEach(function(t) {
+      var gp = t.games_played || 1;
+      var name = (t.team.name || '').toLowerCase();
+      var shortName = (t.team.short_name || t.team.name || '').toLowerCase();
+      var entry = {
+        teamId:        t.team.id,
+        teamName:      t.team.name,
+        rank:          t.rank,
+        wins:          t.wins,
+        draws:         t.draws,
+        losses:        t.losses,
+        gamesPlayed:   gp,
+        goalsFor:      t.goals_for,
+        goalsAgainst:  t.goals_against,
+        // Stats calculées pour l'algorithme
+        winRate:       Math.round(t.wins  / gp * 100),
+        drawRate:      Math.round(t.draws / gp * 100),
+        lossRate:      Math.round(t.losses / gp * 100),
+        goalsForAvg:   (t.goals_for  / gp).toFixed(2),
+        goalsAgainstAvg: (t.goals_against / gp).toFixed(2),
+        cleanSheetPct: 0, // pas fourni par standings, estimé
+        form:          [] // sera complété si matchs disponibles
+      };
+      // Estimer les clean sheets depuis les goals against
+      // Équipe qui encaisse peu = beaucoup de clean sheets
+      entry.cleanSheetPct = Math.round(Math.max(0, (1 - t.goals_against / gp / 1.5) * 100));
+      map[name]      = entry;
+      map[shortName] = entry;
+    });
+    standingsCache[leagueName] = map;
+    standingsLoaded[leagueName] = true;
+    console.log('Standings chargés:', leagueName, Object.keys(map).length, 'équipes');
+    return map;
+  } catch(e) {
+    console.error('Standings error:', leagueName, e);
+    return {};
+  }
+}
+
+function findTeamInStandings(standings, teamName) {
+  if (!standings || !teamName) return null;
+  var name = teamName.toLowerCase().trim();
+  // Recherche exacte
+  if (standings[name]) return standings[name];
+  // Recherche partielle
+  var keys = Object.keys(standings);
+  for (var i=0; i<keys.length; i++) {
+    if (keys[i].includes(name) || name.includes(keys[i])) {
+      return standings[keys[i]];
+    }
+  }
+  return null;
+}
+
+async function fetchTeamStats(homeId, awayId) {
+  // Garder compatibilité avec l'ancien système football-data.org
+  var key = homeId + '_' + awayId;
+  if (statsCache[key]) return statsCache[key];
+  try {
+    var [homeData, awayData] = await Promise.all([
+      apiFetch('/v4/teams/' + homeId + '/matches?status=FINISHED&limit=10').catch(function(){return null;}),
+      apiFetch('/v4/teams/' + awayId + '/matches?status=FINISHED&limit=10').catch(function(){return null;})
+    ]);
+    var result = {
+      home: processTeamMatches(homeData, homeId),
+      away: processTeamMatches(awayData, awayId)
+    };
+    statsCache[key] = result;
+    return result;
+  } catch(e) { return null; }
+}
+
 var statsCache = {};
 async function fetchTeamStats(homeId, awayId) {
   var key = homeId+'_'+awayId;
@@ -892,6 +1070,21 @@ async function fetchTeamStats(homeId, awayId) {
     statsCache[key] = result;
     return result;
   } catch(e) { return null; }
+}
+
+function genFormFromStats(stats) {
+  // Génère une forme approximative basée sur les stats réelles
+  // ex: winRate=60% -> probabilité de W = 0.6
+  var form = [];
+  for (var i=0; i<5; i++) {
+    var r = Math.random();
+    var wr = (stats.winRate||40) / 100;
+    var dr = (stats.drawRate||25) / 100;
+    if (r < wr) form.push('W');
+    else if (r < wr + dr) form.push('D');
+    else form.push('L');
+  }
+  return form;
 }
 
 function processTeamMatches(data, teamId) {
@@ -1026,8 +1219,10 @@ async function maRun() {
   var cX2=o2?roundOdd(1/((1/o3)+(1/o2))):o3;
   var bestDC=null;
   if(o2){
-    if(dc.dc1X>=dc.dcX2&&c1X>=1.20) bestDC={label:'Double chance 1X ('+h+' ou Nul)',cote:c1X,score:dc.dc1X};
-    else if(cX2>=1.20) bestDC={label:'Double chance X2 (Nul ou '+a+')',cote:cX2,score:dc.dcX2};
+    var opts2=[];
+    if(c1X>=1.20&&c1X<=1.60) opts2.push({label:'Double chance 1X ('+h+' ou Nul)',cote:c1X,score:dc.dc1X});
+    if(cX2>=1.20&&cX2<=1.60) opts2.push({label:'Double chance X2 (Nul ou '+a+')',cote:cX2,score:dc.dcX2});
+    if(opts2.length>0) bestDC=opts2.sort(function(a,b){return b.score-a.score;})[0];
   }
   var kf=Math.max(0,(best.e/100)/((best.odd-1)))*0.5;
   var km=Math.round(bank*Math.min(kf,0.05)*10)/10, fm=Math.round(bank*0.02*10)/10;
@@ -1098,6 +1293,13 @@ function openInMA(lid, mid) {
 function init() {
   renderDatebar();
   loadMatches();
+  // Précharger les standings BDL en arrière-plan
+  setTimeout(function() {
+    var leagues = Object.keys(BDL_PATHS);
+    leagues.forEach(function(l) {
+      loadStandings(l).catch(function(){});
+    });
+  }, 2000);
 }
 
 window.addEventListener('load', function() {
