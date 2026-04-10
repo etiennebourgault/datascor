@@ -443,20 +443,22 @@ function showPg(id) {
 // ══════════════════════════════════════════════
 // API HELPERS
 // ══════════════════════════════════════════════
+var PROXY_URL = 'https://datascore-proxy.etibourgault.workers.dev';
+
 function apiFetch(path) {
-  return fetch('/.netlify/functions/api?source=football&path=' + encodeURIComponent(path))
+  return fetch(PROXY_URL+'?source=football&path=' + encodeURIComponent(path))
     .then(function(r) { return r.json(); });
 }
 function apiFetchOdds(path) {
-  return fetch('/.netlify/functions/api?source=odds&path=' + encodeURIComponent(path))
+  return fetch(PROXY_URL+'?source=odds&path=' + encodeURIComponent(path))
     .then(function(r) { return r.json(); });
 }
 function apiFetchBDL(path) {
-  return fetch('/.netlify/functions/api?source=bdl&path=' + encodeURIComponent(path))
+  return fetch(PROXY_URL+'?source=bdl&path=' + encodeURIComponent(path))
     .then(function(r) { return r.json(); });
 }
 function apiFetchESPN(path) {
-  return fetch('/.netlify/functions/api?source=espn&path=' + encodeURIComponent(path))
+  return fetch(PROXY_URL+'?source=espn&path=' + encodeURIComponent(path))
     .then(function(r) { return r.json(); });
 }
 
@@ -969,7 +971,7 @@ var standingsCache = {}; // { 'Ligue 1': { 'PSG': {...}, 'Marseille': {...} } }
 var standingsLoaded = {}; // pour éviter de recharger
 
 async function apiFetchBDL(path) {
-  var r = await fetch('/.netlify/functions/api?source=bdl&path=' + encodeURIComponent(path));
+  var r = await fetch(PROXY_URL+'?source=bdl&path=' + encodeURIComponent(path));
   if (!r.ok) throw new Error('BDL ' + r.status);
   return r.json();
 }
