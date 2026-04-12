@@ -1,0 +1,32 @@
+name: DataScore Bot — Notification Telegram
+
+on:
+  schedule:
+    # Tous les jours à 12h00 heure de Paris (11h UTC en été, 12h UTC en hiver)
+    - cron: '0 11 * * *'
+  workflow_dispatch: # Permet de lancer manuellement depuis GitHub
+
+jobs:
+  send_notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pytz
+
+      - name: Run DataScore Bot
+        env:
+          TELEGRAM_TOKEN:  ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FOOTBALL_KEY:    ${{ secrets.FOOTBALL_KEY }}
+          BDL_KEY:         ${{ secrets.BDL_KEY }}
+          ODDS_KEY:        ${{ secrets.ODDS_KEY }}
+          ANTHROPIC_KEY:   ${{ secrets.ANTHROPIC_KEY }}
+        run: python datascore_bot.py
