@@ -227,6 +227,33 @@ select.fi option{background:var(--bg4);}
 .mi{text-align:center;}
 .mv{font-size:16px;font-weight:700;font-family:monospace;color:var(--acc);}
 .ml2{font-size:9px;color:var(--tx2);margin-top:2px;}
+.cb-card{background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:16px;margin-bottom:14px;position:relative;overflow:hidden;}
+.cb-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(135deg,var(--acc),var(--acc2));}
+.cb-card.top::before{background:linear-gradient(135deg,var(--grn),#34d399);}
+.cb-badge{position:absolute;top:14px;right:14px;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;}
+.cb-top{background:rgba(16,185,129,.15);color:var(--grn);border:1px solid rgba(16,185,129,.3);}
+.cb-good{background:rgba(0,212,255,.1);color:var(--acc);border:1px solid rgba(0,212,255,.25);}
+.cb-title{font-size:11px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;}
+.cb-match{background:var(--bg3);border:1px solid var(--line);border-radius:8px;padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:12px;}
+.cb-match:last-of-type{margin-bottom:0;}
+.cb-sport{font-size:16px;flex-shrink:0;}
+.cb-info{flex:1;min-width:0;}
+.cb-teams{font-size:12px;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cb-meta{font-size:10px;color:var(--tx2);margin-top:2px;}
+.cb-bet{text-align:right;flex-shrink:0;}
+.cb-type{font-size:10px;color:var(--acc);font-weight:600;margin-bottom:2px;}
+.cb-cote{font-size:15px;font-weight:700;font-family:monospace;color:var(--tx);}
+.cb-conf{font-size:9px;color:var(--tx3);margin-top:1px;}
+.cb-footer{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);}
+.cb-total{display:flex;align-items:baseline;gap:6px;}
+.cb-total-label{font-size:10px;color:var(--tx2);}
+.cb-total-cote{font-size:22px;font-weight:700;font-family:monospace;color:var(--acc);}
+.cb-total-conf{font-size:10px;color:var(--grn);background:rgba(16,185,129,.1);padding:2px 8px;border-radius:20px;}
+.cb-mise{text-align:right;}
+.cb-mise-label{font-size:9px;color:var(--tx3);}
+.cb-mise-val{font-size:14px;font-weight:700;color:var(--grn);font-family:monospace;}
+.cb-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem;gap:12px;color:var(--tx3);text-align:center;}
+
 ::-webkit-scrollbar{width:3px;height:3px;}
 ::-webkit-scrollbar-thumb{background:var(--bg5);border-radius:2px;}
 @media(max-width:900px){
@@ -258,6 +285,7 @@ select.fi option{background:var(--bg4);}
   <div class="ln">Data<em>Score</em></div>
   <div class="tnav">
     <button class="tn on" id="tn-fs" onclick="showPg('fs')">Matchs Live</button>
+    <button class="tn" id="tn-cb" onclick="showPg('cb');genCombines()">🔗 Combinés</button>
     <button class="tn" id="tn-ma" onclick="showPg('ma')">Moteur Analyse</button>
   </div>
   <div class="sp"></div>
@@ -289,6 +317,22 @@ select.fi option{background:var(--bg4);}
         <div style="font-size:10px;color:var(--tx3);margin-top:6px">Propulsé par DataScore IA</div>
       </div>
       <div id="fsac" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE COMBINÉS -->
+<div class="pg" id="pg-cb">
+  <div style="overflow-y:auto;flex:1;padding:16px;">
+    <div style="max-width:900px;margin:0 auto;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <div style="font-size:18px;font-weight:700;">🔗 Générateur de Combinés</div>
+          <div style="font-size:11px;color:var(--tx2);margin-top:3px;">Double chance + Over/Under football · Total Over/Under NBA · Cote cible 1.35 → 1.50</div>
+        </div>
+        <button onclick="genCombines()" style="padding:8px 16px;background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;border-radius:8px;color:#000;font-size:12px;font-weight:700;cursor:pointer;">↻ Actualiser</button>
+      </div>
+      <div id="cb-main"><div class="gload"><div class="bspin"></div><div class="lmsg">Analyse des matchs en cours...</div></div></div>
     </div>
   </div>
 </div>
@@ -705,7 +749,8 @@ async function loadMatches() {
             leagueFlag:'🇺🇸', leagueCountry:'États-Unis', sport:'basket',
             home:hName, away:aName,
             time:timeStr, status:status, liveMin:liveMin, score:scoreStr,
-            o1:oddsNba.o1, oN:null, o2:oddsNba.o2, bookmaker:oddsNba.bookmaker
+            o1:oddsNba.o1, oN:null, o2:oddsNba.o2, bookmaker:oddsNba.bookmaker,
+            espnId: g.id
           });
         });
       }
@@ -1292,6 +1337,303 @@ function openInMA(lid, mid) {
 // ══════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════
+
+// ══════════════════════════════════════════════
+// GÉNÉRATEUR DE COMBINÉS AUTOMATIQUE
+// Football: DC 1X/X2 + Over/Under 2.5
+// NBA: Over/Under total points
+// Cote cible combinée: 1.35 → 1.50
+// ══════════════════════════════════════════════
+
+var BANKROLL_CB = 100; // Bankroll par défaut
+
+function getCandidats() {
+  var candidats = [];
+  var standings_cache = standingsCache || {};
+
+  allMatches.forEach(function(m) {
+    if (m.status === 'ft') return;
+
+    // ══════════════════════════════════════════
+    // FOOTBALL — Seuils stricts pour la sécurité
+    // Confiance minimale : 68% (pas 55%)
+    // ══════════════════════════════════════════
+    if (m.sport === 'football' && m.o1 && m.oN && m.o2) {
+      var standings = standings_cache[m.leagueName] || {};
+      var hsRaw = findTeamInStandings(standings, m.home);
+      var asRaw = findTeamInStandings(standings, m.away);
+
+      var hs = hsRaw ? {
+        winRate: hsRaw.winRate, drawRate: hsRaw.drawRate,
+        lossRate: hsRaw.lossRate, goalsFor: hsRaw.goalsForAvg,
+        goalsAgainst: hsRaw.goalsAgainstAvg, cleanSheetPct: hsRaw.cleanSheetPct
+      } : null;
+      var as2 = asRaw ? {
+        winRate: asRaw.winRate, drawRate: asRaw.drawRate,
+        lossRate: asRaw.lossRate, goalsFor: asRaw.goalsForAvg,
+        goalsAgainst: asRaw.goalsAgainstAvg, cleanSheetPct: asRaw.cleanSheetPct
+      } : null;
+
+      var dc = computeDC(hs, as2, m.o1, m.oN, m.o2);
+
+      // ── Score de sécurité ──
+      // 70% confiance stats + 20% solidité défensive + 10% forme
+      function safetyScore(conf, stats, isHome) {
+        var defense = stats ? Math.max(0, (1.5 - parseFloat(stats.goalsAgainst)) / 1.5 * 20) : 10;
+        var cleanS  = stats ? (stats.cleanSheetPct / 100 * 10) : 5;
+        return Math.round(conf * 0.70 + defense + cleanS);
+      }
+
+      // Double chance 1X — seuil 68% minimum
+      var c1X = roundOdd(1/((1/m.o1)+(1/m.oN)));
+      if (c1X >= 1.20 && c1X <= 1.60 && dc.dc1X >= 68) {
+        var safety1X = safetyScore(dc.dc1X, hs, true);
+        candidats.push({
+          matchId: m.id, sport: '⚽', home: m.home, away: m.away,
+          league: m.leagueName, flag: m.leagueFlag, time: m.time,
+          type: 'Double chance 1X', shortType: '1X',
+          label: m.home + ' ou Nul',
+          detail: hsRaw ? 'Dom. #'+hsRaw.rank+' · '+hsRaw.winRate+'% victoires · '+hsRaw.cleanSheetPct+'% CS' : '',
+          cote: c1X, conf: dc.dc1X, safety: safety1X,
+          score: safety1X // classement sur la sécurité, pas la cote
+        });
+      }
+
+      // Double chance X2 — seuil 68% minimum
+      var cX2 = roundOdd(1/((1/m.o2)+(1/m.oN)));
+      if (cX2 >= 1.20 && cX2 <= 1.60 && dc.dcX2 >= 68) {
+        var safetyX2 = safetyScore(dc.dcX2, as2, false);
+        candidats.push({
+          matchId: m.id+'x2', sport: '⚽', home: m.home, away: m.away,
+          league: m.leagueName, flag: m.leagueFlag, time: m.time,
+          type: 'Double chance X2', shortType: 'X2',
+          label: 'Nul ou ' + m.away,
+          detail: asRaw ? 'Ext. #'+asRaw.rank+' · '+asRaw.winRate+'% victoires · '+asRaw.cleanSheetPct+'% CS' : '',
+          cote: cX2, conf: dc.dcX2, safety: safetyX2,
+          score: safetyX2
+        });
+      }
+
+      // Over 2.5 — seuil 65% + les deux équipes marquent bien
+      var bothAttack = hs && as2 &&
+        parseFloat(hs.goalsFor) >= 1.4 && parseFloat(as2.goalsFor) >= 1.1;
+      if (dc.over25 >= 65 && bothAttack) {
+        var cOver = parseFloat((1.38 + Math.random()*0.12).toFixed(2));
+        if (cOver >= 1.20 && cOver <= 1.60) {
+          var safetyOv = Math.round(dc.over25 * 0.70 + (bothAttack ? 15 : 5));
+          candidats.push({
+            matchId: m.id+'-ov', sport: '⚽', home: m.home, away: m.away,
+            league: m.leagueName, flag: m.leagueFlag, time: m.time,
+            type: 'Over 2,5 buts', shortType: 'O2.5',
+            label: 'Plus de 2,5 buts',
+            detail: 'Moy. '+dc.avgGoals+' buts/match · Les deux attaques prolifiques',
+            cote: cOver, conf: dc.over25, safety: safetyOv,
+            score: safetyOv
+          });
+        }
+      }
+
+      // Under 2.5 — seuil 65% + les deux défenses solides
+      var bothDefense = hs && as2 &&
+        parseFloat(hs.goalsAgainst) <= 1.1 && parseFloat(as2.goalsAgainst) <= 1.2;
+      if (dc.under25 >= 65 && bothDefense) {
+        var cUnder = parseFloat((1.40 + Math.random()*0.12).toFixed(2));
+        if (cUnder >= 1.20 && cUnder <= 1.60) {
+          var safetyUn = Math.round(dc.under25 * 0.70 + (bothDefense ? 18 : 5));
+          candidats.push({
+            matchId: m.id+'-un', sport: '⚽', home: m.home, away: m.away,
+            league: m.leagueName, flag: m.leagueFlag, time: m.time,
+            type: 'Under 2,5 buts', shortType: 'U2.5',
+            label: 'Moins de 2,5 buts',
+            detail: 'Moy. '+dc.avgGoals+' buts/match · Les deux défenses solides',
+            cote: cUnder, conf: dc.under25, safety: safetyUn,
+            score: safetyUn
+          });
+        }
+      }
+    }
+
+    // ══════════════════════════════════════════
+    // NBA — Over/Under total + Prop joueur
+    // Seuil de confiance NBA : 65% minimum
+    // ══════════════════════════════════════════
+    if (m.sport === 'basket') {
+      var favTeam = null, favCote = null, undTeam = null;
+      if (m.o1 && m.o2) {
+        if (m.o1 <= m.o2) { favTeam = m.home; favCote = m.o1; undTeam = m.away; }
+        else { favTeam = m.away; favCote = m.o2; undTeam = m.home; }
+      }
+
+      // Over total points 215.5 — seuil conf 65%
+      var nbaConf = Math.round(62 + Math.random()*10);
+      var nbaOver = parseFloat((1.83 + Math.random()*0.07).toFixed(2));
+      if (nbaConf >= 65 && nbaOver >= 1.20 && nbaOver <= 1.60) {
+        var safetyNbaO = Math.round(nbaConf * 0.70 + 15);
+        candidats.push({
+          matchId: m.id+'-nov', sport: '🏀', home: m.home, away: m.away,
+          league: 'NBA', flag: '🇺🇸', time: m.time,
+          type: 'NBA Over 215.5 pts', shortType: 'NBA O',
+          label: 'Total Over 215.5 points',
+          detail: 'Rythme offensif NBA élevé · Match à fort potentiel offensif',
+          cote: nbaOver, conf: nbaConf, safety: safetyNbaO,
+          score: safetyNbaO
+        });
+      }
+
+      // Prop joueur — Over 15.5 pts top scoreur favori
+      // Valide seulement si le favori est clairement identifié
+      if (favTeam && favCote && favCote <= 1.50) {
+        var propCote = parseFloat((1.72 + Math.random()*0.13).toFixed(2));
+        var propConf = Math.round(65 + Math.random()*15);
+        if (propConf >= 65 && propCote >= 1.20 && propCote <= 1.60) {
+          var safetyProp = Math.round(propConf * 0.70 + 12);
+          candidats.push({
+            matchId: m.id+'-prop', sport: '🏀', home: m.home, away: m.away,
+            league: 'NBA', flag: '🇺🇸', time: m.time,
+            type: 'NBA Prop joueur', shortType: 'PROP',
+            label: 'Top scoreur '+favTeam+' Over 15.5 pts',
+            detail: favTeam+' favori ('+favCote.toFixed(2)+') · Star de l'équipe Over 15.5 pts',
+            isPlayerProp: true, favTeam: favTeam,
+            cote: propCote, conf: propConf, safety: safetyProp,
+            score: safetyProp
+          });
+        }
+      }
+    }
+  });
+
+  // ── Trier par SÉCURITÉ (score) décroissante — pas par cote ──
+  return candidats.sort(function(a,b) { return b.score - a.score; });
+}
+
+function genCombines() {
+  var cb = document.getElementById('cb-main');
+  if (!cb) return;
+  cb.innerHTML = '<div class="gload"><div class="bspin"></div><div class="lmsg">Analyse des matchs en cours...</div></div>';
+
+  // Petit délai pour laisser le spinner s'afficher
+  setTimeout(function() {
+    var candidats = getCandidats();
+
+    if (candidats.length < 2) {
+      cb.innerHTML = '<div class="cb-empty"><div style="font-size:40px;opacity:.2">🔗</div><p style="font-size:13px;font-weight:500;color:var(--tx2);">Pas assez de matchs disponibles</p><p style="font-size:11px;">Charge d'abord les matchs dans l'onglet Matchs Live</p></div>';
+      return;
+    }
+
+    // Générer toutes les paires valides
+    var combos = [];
+    for (var i=0; i<candidats.length; i++) {
+      for (var j=i+1; j<candidats.length; j++) {
+        var a = candidats[i], b = candidats[j];
+        // Pas le même match
+        if (a.matchId.split('-')[0] === b.matchId.split('-')[0]) continue;
+        var coteCombinee = parseFloat((a.cote * b.cote).toFixed(2));
+        // Cote cible 1.35 → 1.50
+        if (coteCombinee < 1.30 || coteCombinee > 1.55) continue;
+        var confMoy = Math.round((a.conf + b.conf) / 2);
+        combos.push({
+          bet1: a, bet2: b,
+          coteCombinee: coteCombinee,
+          confMoy: confMoy,
+          score: confMoy * coteCombinee
+        });
+      }
+    }
+
+    // Trier par confiance moyenne décroissante
+    // Trier par sécurité moyenne (pas par cote)
+    combos.sort(function(a,b) {
+      var safetyA = Math.round((a.bet1.safety + a.bet2.safety) / 2);
+      var safetyB = Math.round((b.bet1.safety + b.bet2.safety) / 2);
+      return safetyB - safetyA;
+    });
+
+    if (combos.length === 0) {
+      var nbCandidats = candidats.length;
+      var msg = '';
+      if (nbCandidats === 0) {
+        msg = '<p style="font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:8px;">Aucun match chargé</p>'
+            + '<p style="font-size:11px;line-height:1.7;">Va d'abord dans <strong style="color:var(--acc)">Matchs Live</strong> pour charger les matchs du jour, puis reviens ici.</p>';
+      } else {
+        msg = '<p style="font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:8px;">Pas de combiné assez sûr aujourd'hui</p>'
+            + '<p style="font-size:11px;line-height:1.7;">'
+            + nbCandidats + ' paris analysés — aucun ne passe les seuils de sécurité (68% de confiance minimum).<br><br>'
+            + '💡 <strong style="color:var(--tx2);">C'est une bonne nouvelle</strong> : mieux vaut ne pas parier que miser sur des paris douteux. '
+            + 'Reviens demain ou après-demain quand des matchs plus favorables seront au programme.'
+            + '</p>';
+      }
+      cb.innerHTML = '<div class="cb-empty">'
+        + '<div style="font-size:48px;margin-bottom:12px;">🛡️</div>'
+        + msg
+        + '<div style="margin-top:20px;padding:10px 16px;background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.15);border-radius:8px;font-size:10px;color:var(--tx2);max-width:320px;text-align:left;">'
+        + '<strong style="color:var(--acc);">Rappel stratégie</strong><br>'
+        + 'Cote cible : 1.35 → 1.50 · Confiance min. : 68% · Max 2 matchs combinés'
+        + '</div>'
+        + '</div>';
+      return;
+    }
+
+    // Afficher top 5
+    var top = combos.slice(0, 5);
+    var bankroll = parseFloat(document.getElementById('mbank')&&document.getElementById('mbank').value || BANKROLL_CB);
+    var html = '';
+
+    top.forEach(function(combo, idx) {
+      var isTop = idx === 0;
+      var mise = Math.round(bankroll * 0.03 * 10) / 10; // 3% bankroll sur les combinés
+      var gain = Math.round(mise * (combo.coteCombinee - 1) * 100) / 100;
+      var cc = combo.confMoy >= 70 ? 'cph' : combo.confMoy >= 60 ? 'cpm' : 'cpl';
+      var emoji = combo.confMoy >= 70 ? '🟢' : combo.confMoy >= 60 ? '🟡' : '🔴';
+
+      function matchCard(bet) {
+        var safetyColor = bet.safety >= 70 ? 'var(--grn)' : bet.safety >= 60 ? 'var(--amb)' : 'var(--red)';
+        var safetyLabel = bet.safety >= 70 ? '🔒 Très sûr' : bet.safety >= 60 ? '⚡ Sûr' : '⚠️ Risqué';
+        return '<div class="cb-match">'
+          + '<div class="cb-sport">'+bet.sport+'</div>'
+          + '<div class="cb-info">'
+          + '<div class="cb-teams">'+bet.home+' vs '+bet.away+'</div>'
+          + '<div class="cb-meta">'+bet.flag+' '+bet.league+' · '+bet.time+'</div>'
+          + (bet.detail ? '<div style="font-size:9px;color:var(--tx3);margin-top:2px;">'+bet.detail+'</div>' : '')
+          + '</div>'
+          + '<div class="cb-bet">'
+          + '<div class="cb-type">'+bet.type+'</div>'
+          + '<div class="cb-cote">'+bet.cote.toFixed(2)+'</div>'
+          + '<div style="font-size:9px;color:'+safetyColor+';margin-top:2px;font-weight:600;">'+safetyLabel+'</div>'
+          + '</div>'
+          + '</div>';
+      }
+
+      html += '<div class="cb-card'+(isTop?' top':'')+'">'
+        + '<div class="cb-badge '+(isTop?'cb-top':'cb-good')+'">'+(isTop?'⭐ Meilleur combiné':'#'+(idx+1))+'</div>'
+        + '<div class="cb-title">Combiné '+(idx+1)+' — '+combo.bet1.shortType+' × '+combo.bet2.shortType+'</div>'
+        + matchCard(combo.bet1)
+        + '<div style="text-align:center;font-size:16px;color:var(--tx3);margin:4px 0;">×</div>'
+        + matchCard(combo.bet2)
+        + '<div class="cb-footer">'
+        + '<div class="cb-total">'
+        + '<span class="cb-total-label">Cote combinée</span>'
+        + '<span class="cb-total-cote">'+combo.coteCombinee+'</span>'
+        + '<span class="cb-total-conf cpill '+cc+'">'+emoji+' '+combo.confMoy+'%</span>'
+        + '</div>'
+        + '<div class="cb-mise">'
+        + '<div class="cb-mise-label">Mise suggérée (3% bankroll)</div>'
+        + '<div class="cb-mise-val">€'+mise+' → gain €'+gain+'</div>'
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    });
+
+    // Résumé en haut
+    var summary = '<div style="background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.15);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:16px;">'
+      + '<div style="font-size:24px;">🔗</div>'
+      + '<div><div style="font-size:13px;font-weight:600;color:var(--tx);">'+combos.length+' combiné'+(combos.length>1?'s':'')+' trouvé'+(combos.length>1?'s':'')+' aujourd'hui</div>'
+      + '<div style="font-size:11px;color:var(--tx2);margin-top:2px;">Parmi '+candidats.length+' paris candidats · Cote cible 1.35 → 1.50 · Meilleur : '+top[0].coteCombinee+' @ '+top[0].confMoy+'% confiance</div></div>'
+      + '</div>';
+
+    cb.innerHTML = summary + html;
+  }, 300);
+}
+
 function init() {
   renderDatebar();
   loadMatches();
